@@ -3122,6 +3122,8 @@ panel_toplevel_dispose (GObject *widget)
 		toplevel->priv->attach_widget   = NULL;
 	}
 
+	toplevel->priv->panel_widget = NULL;
+
 	g_clear_pointer (&toplevel->priv->description, g_free);
 	g_clear_pointer (&toplevel->priv->name, g_free);
 

@@ -2300,7 +2300,8 @@ panel_sub_event_handler(GtkWidget *widget, GdkEvent *event, gpointer data)
 static void
 bind_applet_events(GtkWidget *widget, gpointer data)
 {
-	g_return_if_fail(GTK_IS_WIDGET(widget));
+	if (!GTK_IS_WIDGET (widget))
+		return;
 
 	/* XXX: This is more or less a hack.  We need to be able to
 	 * capture events over applets so that we can drag them with
@@ -2311,13 +2312,14 @@ bind_applet_events(GtkWidget *widget, gpointer data)
 	 */
 
 	if (gtk_widget_get_has_window (widget))
-		g_signal_connect (widget, "event",
-		                  G_CALLBACK (panel_sub_event_handler),
-		                  data);
+		g_signal_connect_object (widget, "event",
+		                         G_CALLBACK (panel_sub_event_handler),
+		                         data, 0);
 
-	if (GTK_IS_CONTAINER(widget))
+	if (GTK_IS_CONTAINER(widget)) {
 		gtk_container_foreach (GTK_CONTAINER (widget),
 				       bind_applet_events, data);
+	}
 }
 
 static void
@@ -2378,9 +2380,10 @@ bind_top_applet_events (GtkWidget *widget)
 	 * GtkEventBox) for processing by us.
 	 */
 
-	if (GTK_IS_CONTAINER(widget))
+	if (GTK_IS_CONTAINER(widget)) {
 		gtk_container_foreach (GTK_CONTAINER (widget),
 				       bind_applet_events, widget);
+	}
 }
 
 static int
