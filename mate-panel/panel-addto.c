@@ -964,9 +964,11 @@ panel_addto_dialog_free (PanelAddtoDialog *dialog)
 {
 	GSList      *item;
 
-	g_signal_handlers_disconnect_by_func(dialog->panel_widget->toplevel->settings,
-					     G_CALLBACK (panel_addto_name_notify),
-					     dialog);
+	if (dialog->panel_widget->toplevel->settings) {
+		g_signal_handlers_disconnect_by_func(dialog->panel_widget->toplevel->settings,
+						     G_CALLBACK (panel_addto_name_notify),
+						     dialog);
+	}
 
 	g_free (dialog->search_text);
 	g_free (dialog->applet_search_text);

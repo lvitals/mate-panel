@@ -69,6 +69,9 @@ orientation_change (AppletInfo  *info,
 {
 	PanelOrientation orientation;
 
+	if (info == NULL || info->widget == NULL)
+		return;
+
 	orientation = panel_widget_get_applet_orientation (panel);
 
 	switch (info->type) {
@@ -88,14 +91,21 @@ orientation_change (AppletInfo  *info,
 		Drawer      *drawer = info->data;
 		PanelWidget *panel_widget;
 
+		if (drawer == NULL || drawer->toplevel == NULL)
+			break;
+
 		panel_widget = panel_toplevel_get_panel_widget (drawer->toplevel);
 
 		button_widget_set_orientation (BUTTON_WIDGET (info->widget), orientation);
 
-		gtk_widget_queue_resize (GTK_WIDGET (drawer->toplevel));
-		gtk_container_foreach (GTK_CONTAINER (panel_widget),
-				       orient_change_foreach,
-				       panel_widget);
+		if (GTK_IS_WIDGET (drawer->toplevel)) {
+			gtk_widget_queue_resize (GTK_WIDGET (drawer->toplevel));
+			if (GTK_IS_CONTAINER (panel_widget)) {
+				gtk_container_foreach (GTK_CONTAINER (panel_widget),
+						       orient_change_foreach,
+						       panel_widget);
+			}
+		}
 		}
 		break;
 	case PANEL_OBJECT_SEPARATOR:
@@ -110,18 +120,25 @@ orientation_change (AppletInfo  *info,
 static void
 orient_change_foreach(GtkWidget *w, gpointer data)
 {
-	AppletInfo *info = g_object_get_data (G_OBJECT (w), "applet_info");
+	AppletInfo *info;
 	PanelWidget *panel = data;
 
-	orientation_change(info,panel);
+	if (!GTK_IS_WIDGET (w))
+		return;
+
+	info = g_object_get_data (G_OBJECT (w), "applet_info");
+	if (info)
+		orientation_change(info,panel);
 }
 
 static void
 panel_orient_change (GtkWidget *widget, gpointer data)
 {
-	gtk_container_foreach(GTK_CONTAINER(widget),
-			      orient_change_foreach,
-			      widget);
+	if (GTK_IS_CONTAINER (widget)) {
+		gtk_container_foreach(GTK_CONTAINER(widget),
+				      orient_change_foreach,
+				      widget);
+	}
 }
 
 /*we call this recursively*/
@@ -139,23 +156,33 @@ size_change (AppletInfo  *info,
 static void
 size_change_foreach(GtkWidget *w, gpointer data)
 {
-	AppletInfo *info = g_object_get_data (G_OBJECT (w), "applet_info");
+	AppletInfo *info;
 	PanelWidget *panel = data;
 
-	size_change(info,panel);
+	if (!GTK_IS_WIDGET (w))
+		return;
+
+	info = g_object_get_data (G_OBJECT (w), "applet_info");
+	if (info)
+		size_change(info,panel);
 }
 
 static void
 panel_size_change (GtkWidget *widget, gpointer data)
 {
-	gtk_container_foreach(GTK_CONTAINER(widget), size_change_foreach,
-			      widget);
+	if (GTK_IS_CONTAINER (widget)) {
+		gtk_container_foreach(GTK_CONTAINER(widget), size_change_foreach,
+				      widget);
+	}
 }
 
 void
 back_change (AppletInfo  *info,
 	     PanelWidget *panel)
 {
+	if (info == NULL || info->widget == NULL)
+		return;
+
 	switch (info->type) {
 	case PANEL_OBJECT_APPLET:
 		mate_panel_applet_frame_change_background (
@@ -178,19 +205,25 @@ back_change_foreach (GtkWidget   *widget,
 {
 	AppletInfo *info;
 
+	if (!GTK_IS_WIDGET (widget))
+		return;
+
 	info = g_object_get_data (G_OBJECT (widget), "applet_info");
 
-	back_change (info, panel);
+	if (info)
+		back_change (info, panel);
 }
-
 static void
 panel_back_change (GtkWidget *widget, gpointer data)
 {
-	gtk_container_foreach (GTK_CONTAINER (widget),
-			       (GtkCallback) back_change_foreach,
-			       widget);
+	if (GTK_IS_CONTAINER (widget)) {
+		gtk_container_foreach (GTK_CONTAINER (widget),
+				       (GtkCallback) back_change_foreach,
+				       widget);
+	}
 
 #ifdef FIXME_FOR_NEW_CONFIG
+...
 	/*update the configuration box if it is displayed*/
 	update_config_back(PANEL_WIDGET(widget));
 #endif /* FIXME_FOR_NEW_CONFIG */
@@ -1384,8 +1417,9 @@ panel_setup (PanelToplevel *toplevel)
 	g_signal_connect (toplevel, "popup-menu",
 			  G_CALLBACK (panel_popup_menu_signal), NULL);
 
-	g_signal_connect_swapped (toplevel, "notify::orientation",
-				  G_CALLBACK (panel_orient_change), panel_widget);
+	g_signal_connect_object (toplevel, "notify::orientation",
+				 G_CALLBACK (panel_orient_change), panel_widget,
+				 G_CONNECT_SWAPPED);
 
 	g_signal_connect (toplevel, "destroy", G_CALLBACK (panel_destroy), pd);
 
