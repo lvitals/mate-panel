@@ -137,6 +137,7 @@ mate_panel_applet_factory_new (const gchar *factory_id,
 	factory->out_of_process = out_of_process;
 	factory->applet_type = applet_type;
 	factory->closure = g_closure_ref (closure);
+	g_closure_sink (factory->closure);
 
 	if (factories == NULL)
 		factories = g_hash_table_new (g_str_hash, g_str_equal);

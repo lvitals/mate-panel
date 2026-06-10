@@ -864,8 +864,10 @@ mate_panel_applet_finalize (GObject *object)
 	g_clear_pointer (&priv->background, g_free);
 	g_clear_pointer (&priv->id, g_free);
 
-	/* closure is owned by the factory */
-	priv->closure = NULL;
+	if (priv->closure) {
+		g_closure_unref (priv->closure);
+		priv->closure = NULL;
+	}
 
 	G_OBJECT_CLASS (mate_panel_applet_parent_class)->finalize (object);
 }
@@ -1743,9 +1745,10 @@ mate_panel_applet_set_property (GObject      *object,
 		priv->id = g_value_dup_string (value);
 		break;
 	case PROP_CLOSURE:
-		priv->closure = g_value_get_pointer (value);
-		g_closure_set_marshal (priv->closure,
-				       mate_panel_applet_marshal_BOOLEAN__STRING);
+		if (priv->closure)
+			g_closure_unref (priv->closure);
+
+		priv->closure = g_closure_ref (g_value_get_pointer (value));
 		break;
 	case PROP_CONNECTION:
 		priv->connection = g_value_dup_object (value);
@@ -2472,8 +2475,10 @@ _mate_panel_applet_factory_main_internal (const gchar               *factory_id,
 	}
 
 	closure = g_cclosure_new(G_CALLBACK(callback), user_data, NULL);
+	g_closure_set_marshal (closure,
+			       mate_panel_applet_marshal_BOOLEAN__STRING);
+
 	factory = mate_panel_applet_factory_new(factory_id, out_process,  applet_type, closure);
-	g_closure_unref(closure);
 
 	if (mate_panel_applet_factory_register_service(factory))
 	{

@@ -27,6 +27,12 @@ if ENABLE_X11
 WNCKLET_SOURCES += \
 	workspace-switcher.c \
 	workspace-switcher.h
+else
+if ENABLE_WAYLAND
+WNCKLET_SOURCES += \
+	workspace-switcher.c \
+	workspace-switcher.h
+endif
 endif
 
 
@@ -45,6 +51,8 @@ if ENABLE_WAYLAND
 WNCKLET_SOURCES += \
 	wayland-backend.c \
 	wayland-backend.h \
+	wayland-protocol/ext-workspace-v1-code.c \
+	wayland-protocol/ext-workspace-v1-client.h \
 	wayland-protocol/wlr-foreign-toplevel-management-unstable-v1-code.c \
 	wayland-protocol/wlr-foreign-toplevel-management-unstable-v1-client.h
 
@@ -111,6 +119,12 @@ ui_FILES += \
 	workspace-switcher-menu.xml \
 	workspace-switcher.ui
 
+else
+if ENABLE_WAYLAND
+ui_FILES += \
+	workspace-switcher-menu.xml \
+	workspace-switcher.ui
+endif
 endif
 
 
@@ -139,6 +153,7 @@ EXTRA_DIST = \
 	$(service_in_files) \
 	$(wncklet_gschemas_in) \
 	$(ui_FILES) \
+	wayland-protocol/ext-workspace-v1.xml \
 	wncklet.gresource.xml
 
 CLEANFILES = $(BUILT_SOURCES) $(applet_DATA) $(applet_in_files) $(service_DATA) $(gsettings_SCHEMAS)

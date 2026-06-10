@@ -174,15 +174,6 @@ for i in $PANEL_INPROCESS_APPLETS; do
 		[Defined when compiling the wncklet applet in-process])
 	fi; fi; fi; fi
 done
-if test "x$PANEL_INPROCESS_APPLETS" = "x"; then
-	PANEL_INPROCESS_APPLETS="(none)"
-fi
-
-AM_CONDITIONAL(CLOCK_INPROCESS, test -n "$CLOCK_COMPILE_INPROCESS")
-AM_CONDITIONAL(FISH_INPROCESS, test -n "$FISH_COMPILE_INPROCESS")
-AM_CONDITIONAL(NOTIFICATION_AREA_INPROCESS, test -n "$NOTIFICATION_AREA_COMPILE_INPROCESS")
-AM_CONDITIONAL(WNCKLET_INPROCESS, test -n "$WNCKLET_COMPILE_INPROCESS")
-
 dnl **************************************************************************
 dnl Check if struct dirent contains a d_type member, for run dialog
 dnl **************************************************************************
@@ -218,6 +209,12 @@ AM_CONDITIONAL(ENABLE_WAYLAND, [test "x$have_wayland" = "xyes"])
 
 if test "x$have_wayland" = "xyes"; then
   AC_DEFINE(HAVE_WAYLAND, 1, [Have the Wayland development library])
+  if test -z "$WNCKLET_COMPILE_INPROCESS"; then
+    WNCKLET_COMPILE_INPROCESS=1
+    AC_DEFINE([WNCKLET_INPROCESS], 1,
+      [Defined when compiling the wncklet applet in-process])
+    PANEL_INPROCESS_APPLETS="$PANEL_INPROCESS_APPLETS wncklet"
+  fi
 fi
 
 AC_SUBST(WAYLAND_CFLAGS)
@@ -246,6 +243,30 @@ if test "x$have_x11" != "xyes" -a "x$have_wayland" != "xyes"; then
     AC_MSG_ERROR([No usable backend found, install X11 or Wayland development libraries])
   fi
 fi
+
+if test "x$have_wayland" = "xyes" && test -z "$PANEL_INPROCESS_NONE"; then
+  if test -z "$CLOCK_COMPILE_INPROCESS"; then
+    CLOCK_COMPILE_INPROCESS=1
+    AC_DEFINE([CLOCK_INPROCESS], 1,
+    [Defined when compiling the clock applet in-process])
+    PANEL_INPROCESS_APPLETS="$PANEL_INPROCESS_APPLETS clock"
+  fi
+  if test -z "$NOTIFICATION_AREA_COMPILE_INPROCESS"; then
+    NOTIFICATION_AREA_COMPILE_INPROCESS=1
+    AC_DEFINE([NOTIFICATION_AREA_INPROCESS], 1,
+    [Defined when compiling the notification-area applet in-process])
+    PANEL_INPROCESS_APPLETS="$PANEL_INPROCESS_APPLETS notification-area"
+  fi
+fi
+
+if test "x$PANEL_INPROCESS_APPLETS" = "x"; then
+  PANEL_INPROCESS_APPLETS="(none)"
+fi
+
+AM_CONDITIONAL(CLOCK_INPROCESS, test -n "$CLOCK_COMPILE_INPROCESS")
+AM_CONDITIONAL(FISH_INPROCESS, test -n "$FISH_COMPILE_INPROCESS")
+AM_CONDITIONAL(NOTIFICATION_AREA_INPROCESS, test -n "$NOTIFICATION_AREA_COMPILE_INPROCESS")
+AM_CONDITIONAL(WNCKLET_INPROCESS, test -n "$WNCKLET_COMPILE_INPROCESS")
 
 AC_SUBST(X_LIBS)
 

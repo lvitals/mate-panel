@@ -29,6 +29,7 @@
 #include <gio/gdesktopappinfo.h>
 
 #include "wayland-backend.h"
+#include "wayland-protocol/ext-workspace-v1-client.h"
 #include "wayland-protocol/wlr-foreign-toplevel-management-unstable-v1-client.h"
 
 /*shorter than wnck-tasklist due to common use of larger fonts*/
@@ -48,12 +49,19 @@ typedef struct
 	GtkWidget *close;
 } ContextMenu;
 
+typedef enum
+{
+	TASKLIST_MODE_BUTTONS,
+	TASKLIST_MODE_MENU
+} TasklistMode;
+
 typedef struct
 {
 	GtkWidget *list;
 	GtkWidget *outer_box;
 	ContextMenu *context_menu;
 	struct zwlr_foreign_toplevel_manager_v1 *manager;
+	TasklistMode mode;
 } TasklistManager;
 
 typedef struct
@@ -68,15 +76,39 @@ typedef struct
 	gboolean fullscreen;
 } ToplevelTask;
 
+typedef struct
+{
+	GtkWidget *box;
+	struct ext_workspace_manager_v1 *manager;
+	struct ext_workspace_group_handle_v1 *group;
+	GList *workspaces;
+} WorkspaceManager;
+
+typedef struct
+{
+	GtkWidget *button;
+	GtkWidget *drawing_area;
+	char *name;
+	uint32_t state;
+	uint32_t capabilities;
+	struct ext_workspace_handle_v1 *workspace;
+	WorkspaceManager *manager;
+} WaylandWorkspace;
+
 static int tasklist_invocations = 0;
 
 static const char *tasklist_manager_key = "tasklist_manager";
 static const char *toplevel_task_key = "toplevel_task";
+static const char *workspace_manager_key = "workspace_manager";
+static const char *wayland_workspace_key = "wayland_workspace";
 
 static gboolean has_initialized = FALSE;
 static struct wl_registry *wl_registry_global = NULL;
+static struct wl_display *wl_display_global = NULL;
 static uint32_t foreign_toplevel_manager_global_id = 0;
 static uint32_t foreign_toplevel_manager_global_version = 0;
+static uint32_t workspace_manager_global_id = 0;
+static uint32_t workspace_manager_global_version = 0;
 
 static ToplevelTask *toplevel_task_new (TasklistManager *tasklist, struct zwlr_foreign_toplevel_handle_v1 *handle);
 
@@ -99,6 +131,12 @@ wl_registry_handle_global (void *_data,
 		foreign_toplevel_manager_global_version =
 			MIN((uint32_t)zwlr_foreign_toplevel_manager_v1_interface.version, version);
 	}
+	else if (strcmp (interface, ext_workspace_manager_v1_interface.name) == 0)
+	{
+		workspace_manager_global_id = id;
+		workspace_manager_global_version =
+			MIN((uint32_t)ext_workspace_manager_v1_interface.version, version);
+	}
 }
 
 static void
@@ -109,6 +147,10 @@ wl_registry_handle_global_remove (void *_data,
 	if (id == foreign_toplevel_manager_global_id)
 	{
 		foreign_toplevel_manager_global_id = 0;
+	}
+	else if (id == workspace_manager_global_id)
+	{
+		workspace_manager_global_id = 0;
 	}
 }
 
@@ -127,14 +169,18 @@ wayland_tasklist_init_if_needed (void)
 	g_return_if_fail (gdk_display);
 	g_return_if_fail (GDK_IS_WAYLAND_DISPLAY (gdk_display));
 
-	struct wl_display *wl_display = gdk_wayland_display_get_wl_display (gdk_display);
-	wl_registry_global = wl_display_get_registry (wl_display);
+	wl_display_global = gdk_wayland_display_get_wl_display (gdk_display);
+	wl_registry_global = wl_display_get_registry (wl_display_global);
 	wl_registry_add_listener (wl_registry_global, &wl_registry_listener, NULL);
-	wl_display_roundtrip (wl_display);
+	wl_display_roundtrip (wl_display_global);
 
 	if (!foreign_toplevel_manager_global_id)
 		g_warning ("%s not supported by Wayland compositor",
 			   zwlr_foreign_toplevel_manager_v1_interface.name);
+
+	if (!workspace_manager_global_id)
+		g_warning ("%s not supported by Wayland compositor",
+			   ext_workspace_manager_v1_interface.name);
 
 	has_initialized = TRUE;
 }
@@ -146,7 +192,11 @@ foreign_toplevel_manager_handle_toplevel (void *data,
 {
 	TasklistManager *tasklist = data;
 	ToplevelTask *task = toplevel_task_new (tasklist, toplevel);
-	gtk_box_pack_start (GTK_BOX (tasklist->list), task->button, TRUE, TRUE, 0);
+
+	if (tasklist->mode == TASKLIST_MODE_MENU)
+		gtk_menu_shell_append (GTK_MENU_SHELL (tasklist->list), task->button);
+	else
+		gtk_box_pack_start (GTK_BOX (tasklist->list), task->button, TRUE, TRUE, 0);
 }
 
 static void
@@ -259,17 +309,36 @@ context_menu_new ()
 }
 
 static TasklistManager *
-tasklist_manager_new (void)
+tasklist_manager_new (TasklistMode mode)
 {
 	if (!foreign_toplevel_manager_global_id)
 		return NULL;
 
 	TasklistManager *tasklist = g_new0 (TasklistManager, 1);
-	tasklist->list = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_box_set_homogeneous (GTK_BOX (tasklist->list), TRUE);
-	tasklist->outer_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_box_pack_start (GTK_BOX (tasklist->outer_box), tasklist->list, FALSE, FALSE, 0);
-	gtk_widget_show (tasklist->list);
+	tasklist->mode = mode;
+
+	if (mode == TASKLIST_MODE_MENU)
+	{
+		GtkWidget *image;
+
+		tasklist->list = gtk_menu_new ();
+		tasklist->outer_box = gtk_menu_button_new ();
+		image = gtk_image_new_from_icon_name ("mate-panel-window-menu", GTK_ICON_SIZE_MENU);
+		gtk_container_add (GTK_CONTAINER (tasklist->outer_box), image);
+		gtk_menu_button_set_popup (GTK_MENU_BUTTON (tasklist->outer_box), tasklist->list);
+		gtk_widget_show_all (tasklist->outer_box);
+	}
+	else
+	{
+		tasklist->list = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+		gtk_box_set_homogeneous (GTK_BOX (tasklist->list), TRUE);
+		tasklist->outer_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+		gtk_widget_set_size_request (tasklist->outer_box, icon_size * 3, -1);
+		gtk_box_pack_start (GTK_BOX (tasklist->outer_box), tasklist->list, FALSE, FALSE, 0);
+		gtk_widget_show (tasklist->list);
+		tasklist->context_menu = context_menu_new ();
+	}
+
 	tasklist->manager = wl_registry_bind (wl_registry_global,
 					     foreign_toplevel_manager_global_id,
 					     &zwlr_foreign_toplevel_manager_v1_interface,
@@ -281,7 +350,7 @@ tasklist_manager_new (void)
 				tasklist_manager_key,
 				tasklist,
 				(GDestroyNotify)tasklist_manager_disconnected_from_widget);
-	tasklist->context_menu = context_menu_new ();
+	wl_display_roundtrip (wl_display_global);
 	return tasklist;
 }
 
@@ -296,6 +365,10 @@ foreign_toplevel_handle_title (void *data,
 	{
 		gtk_label_set_label (GTK_LABEL (task->label), title);
 	}
+	else if (GTK_IS_MENU_ITEM (task->button))
+	{
+		gtk_menu_item_set_label (GTK_MENU_ITEM (task->button), title);
+	}
 }
 
 static void
@@ -304,6 +377,9 @@ foreign_toplevel_handle_app_id (void *data,
 				const char *app_id)
 {
 	ToplevelTask *task = data;
+
+	if (!task->icon)
+		return;
 
 	gchar *app_id_lower = g_utf8_strdown (app_id, -1);
 	gchar *desktop_app_id = g_strdup_printf ("%s.desktop", app_id_lower);
@@ -376,7 +452,8 @@ foreign_toplevel_handle_state (void *data,
 		}
 	}
 
-	gtk_button_set_relief (GTK_BUTTON (task->button), task->active ? GTK_RELIEF_NORMAL : GTK_RELIEF_NONE);
+	if (GTK_IS_BUTTON (task->button))
+		gtk_button_set_relief (GTK_BUTTON (task->button), task->active ? GTK_RELIEF_NORMAL : GTK_RELIEF_NONE);
 }
 
 static void
@@ -498,6 +575,10 @@ foreign_toplevel_handle_closed (void *data,
 
 		outer_box = gtk_widget_get_parent (GTK_WIDGET (task->button));
 		gtk_widget_destroy (task->button);
+
+		if (!GTK_IS_BOX (outer_box))
+			return;
+
 		buttons = buttons -1;
 
 		if (tasklist_invocations > 1)
@@ -599,6 +680,18 @@ toplevel_task_handle_clicked (GtkButton *button, ToplevelTask *task)
 	}
 }
 
+static void
+toplevel_task_handle_activate (GtkMenuItem *item, ToplevelTask *task)
+{
+	if (task->toplevel)
+	{
+		GdkDisplay *gdk_display = gtk_widget_get_display (GTK_WIDGET (item));
+		GdkSeat *gdk_seat = gdk_display_get_default_seat (gdk_display);
+		struct wl_seat *wl_seat = gdk_wayland_seat_get_wl_seat (gdk_seat);
+		zwlr_foreign_toplevel_handle_v1_activate (task->toplevel, wl_seat);
+	}
+}
+
 static gboolean on_toplevel_button_press (GtkWidget *button, GdkEvent *event, TasklistManager *tasklist)
 {
 	/* Assume event is a button press */
@@ -633,6 +726,22 @@ toplevel_task_new (TasklistManager *tasklist, struct zwlr_foreign_toplevel_handl
 	GtkOrientation orient;
 	GtkWidget *whole_panel_box, *parent_box;
 	int real_buttons, button_space, panel_width;
+
+	if (tasklist->mode == TASKLIST_MODE_MENU)
+	{
+		task->button = gtk_menu_item_new_with_label ("");
+		g_signal_connect (task->button, "activate", G_CALLBACK (toplevel_task_handle_activate), task);
+		task->toplevel = toplevel;
+		zwlr_foreign_toplevel_handle_v1_add_listener (toplevel,
+							      &foreign_toplevel_handle_listener,
+							      task);
+		g_object_set_data_full (G_OBJECT (task->button),
+					toplevel_task_key,
+					task,
+					(GDestroyNotify)toplevel_task_disconnected_from_widget);
+		gtk_widget_show (task->button);
+		return task;
+	}
 
 	buttons = buttons + 1;
 	orient = gtk_orientable_get_orientation (GTK_ORIENTABLE (tasklist->outer_box));
@@ -748,12 +857,456 @@ GtkWidget*
 wayland_tasklist_new ()
 {
 	wayland_tasklist_init_if_needed ();
-	TasklistManager *tasklist = tasklist_manager_new ();
+	TasklistManager *tasklist = tasklist_manager_new (TASKLIST_MODE_BUTTONS);
 
 	tasklist_invocations = tasklist_invocations + 1;
 	if (!tasklist)
 		return gtk_label_new ("Shell does not support WLR Foreign Toplevel Control");
 	return tasklist->outer_box;
+}
+
+GtkWidget*
+wayland_selector_new ()
+{
+	wayland_tasklist_init_if_needed ();
+	TasklistManager *tasklist = tasklist_manager_new (TASKLIST_MODE_MENU);
+
+	if (!tasklist)
+		return gtk_label_new ("Shell does not support WLR Foreign Toplevel Control");
+	return tasklist->outer_box;
+}
+
+static void
+wayland_workspace_update_button (WaylandWorkspace *workspace)
+{
+	gboolean active;
+
+	if (!workspace->button)
+		return;
+
+	active = (workspace->state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE) != 0;
+	gtk_button_set_relief (GTK_BUTTON (workspace->button),
+			       active ? GTK_RELIEF_NORMAL : GTK_RELIEF_NONE);
+	gtk_widget_set_sensitive (workspace->button,
+				  (workspace->capabilities & EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE) != 0);
+	if (workspace->drawing_area)
+		gtk_widget_queue_draw (workspace->drawing_area);
+}
+
+static gboolean
+wayland_workspace_draw (GtkWidget *widget, cairo_t *cr, WaylandWorkspace *workspace)
+{
+	GtkAllocation allocation;
+	GtkStyleContext *context;
+	GdkRGBA border;
+	GdkRGBA fill;
+	GdkRGBA window_fill;
+	gboolean active;
+	gboolean urgent;
+	gint width;
+	gint height;
+	gint padding;
+	gint win_w;
+	gint win_h;
+
+	gtk_widget_get_allocation (widget, &allocation);
+	width = allocation.width;
+	height = allocation.height;
+	padding = 3;
+
+	active = (workspace->state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE) != 0;
+	urgent = (workspace->state & EXT_WORKSPACE_HANDLE_V1_STATE_URGENT) != 0;
+
+	context = gtk_widget_get_style_context (widget);
+	gtk_style_context_get_color (context,
+				     gtk_widget_get_state_flags (widget),
+				     &border);
+
+	fill = border;
+	fill.alpha = active ? 0.22 : 0.08;
+	window_fill = border;
+	window_fill.alpha = active ? 0.55 : 0.30;
+
+	cairo_set_line_width (cr, active ? 2.0 : 1.0);
+	gdk_cairo_set_source_rgba (cr, &fill);
+	cairo_rectangle (cr, 0.5, 0.5, width - 1, height - 1);
+	cairo_fill_preserve (cr);
+	gdk_cairo_set_source_rgba (cr, &border);
+	cairo_stroke (cr);
+
+	if (urgent)
+	{
+		GdkRGBA urgent_color = { 1.0, 0.25, 0.15, 0.45 };
+		gdk_cairo_set_source_rgba (cr, &urgent_color);
+		cairo_rectangle (cr, 2.5, 2.5, width - 5, height - 5);
+		cairo_stroke (cr);
+	}
+
+	/* ext-workspace-v1 does not expose per-window geometry. Draw a compact
+	 * content marker so the Wayland pager resembles the classic pager instead
+	 * of showing workspace name buttons.
+	 */
+	win_w = MAX ((width - (padding * 3)) / 2, 4);
+	win_h = MAX ((height - (padding * 3)) / 2, 3);
+
+	gdk_cairo_set_source_rgba (cr, &window_fill);
+	cairo_rectangle (cr, padding, padding, win_w, win_h);
+	cairo_fill (cr);
+
+	if (active)
+	{
+		cairo_rectangle (cr,
+				 width - padding - win_w,
+				 height - padding - win_h,
+				 win_w,
+				 win_h);
+		cairo_fill (cr);
+	}
+
+	return FALSE;
+}
+
+static void
+wayland_workspace_destroy (WaylandWorkspace *workspace)
+{
+	struct ext_workspace_handle_v1 *handle = workspace->workspace;
+
+	workspace->button = NULL;
+	workspace->drawing_area = NULL;
+	workspace->workspace = NULL;
+
+	if (workspace->manager)
+		workspace->manager->workspaces =
+			g_list_remove (workspace->manager->workspaces, workspace);
+
+	if (handle)
+		ext_workspace_handle_v1_destroy (handle);
+
+	g_free (workspace->name);
+	g_free (workspace);
+}
+
+static void
+wayland_workspace_handle_id (void *data,
+			     struct ext_workspace_handle_v1 *handle,
+			     const char *id)
+{
+	/* not displayed */
+}
+
+static void
+wayland_workspace_handle_name (void *data,
+			       struct ext_workspace_handle_v1 *handle,
+			       const char *name)
+{
+	WaylandWorkspace *workspace = data;
+
+	g_free (workspace->name);
+	workspace->name = g_strdup (name);
+	gtk_widget_set_tooltip_text (workspace->button, workspace->name);
+	if (workspace->drawing_area)
+		gtk_widget_queue_draw (workspace->drawing_area);
+}
+
+static void
+wayland_workspace_handle_coordinates (void *data,
+				      struct ext_workspace_handle_v1 *handle,
+				      struct wl_array *coordinates)
+{
+	/* Marco sends workspaces in configured order; no extra sorting needed. */
+}
+
+static void
+wayland_workspace_handle_state (void *data,
+				struct ext_workspace_handle_v1 *handle,
+				uint32_t state)
+{
+	WaylandWorkspace *workspace = data;
+
+	workspace->state = state;
+	wayland_workspace_update_button (workspace);
+}
+
+static void
+wayland_workspace_handle_capabilities (void *data,
+				       struct ext_workspace_handle_v1 *handle,
+				       uint32_t capabilities)
+{
+	WaylandWorkspace *workspace = data;
+
+	workspace->capabilities = capabilities;
+	wayland_workspace_update_button (workspace);
+}
+
+static void
+wayland_workspace_handle_removed (void *data,
+				  struct ext_workspace_handle_v1 *handle)
+{
+	WaylandWorkspace *workspace = data;
+
+	if (workspace->button)
+		gtk_widget_destroy (workspace->button);
+}
+
+static const struct ext_workspace_handle_v1_listener workspace_handle_listener = {
+	.id = wayland_workspace_handle_id,
+	.name = wayland_workspace_handle_name,
+	.coordinates = wayland_workspace_handle_coordinates,
+	.state = wayland_workspace_handle_state,
+	.capabilities = wayland_workspace_handle_capabilities,
+	.removed = wayland_workspace_handle_removed,
+};
+
+static void
+wayland_workspace_button_clicked (GtkButton *button,
+				  WaylandWorkspace *workspace)
+{
+	if (!workspace->workspace || !workspace->manager->manager)
+		return;
+
+	ext_workspace_handle_v1_activate (workspace->workspace);
+	ext_workspace_manager_v1_commit (workspace->manager->manager);
+}
+
+static void
+workspace_manager_handle_workspace (void *data,
+				    struct ext_workspace_manager_v1 *manager,
+				    struct ext_workspace_handle_v1 *handle)
+{
+	WorkspaceManager *workspace_manager = data;
+	WaylandWorkspace *workspace;
+
+	workspace = g_new0 (WaylandWorkspace, 1);
+	workspace->workspace = handle;
+	workspace->manager = workspace_manager;
+	workspace_manager->workspaces = g_list_append (workspace_manager->workspaces, workspace);
+	workspace->button = gtk_button_new ();
+	workspace->drawing_area = gtk_drawing_area_new ();
+	gtk_widget_set_size_request (workspace->drawing_area, 48, 24);
+	gtk_button_set_relief (GTK_BUTTON (workspace->button), GTK_RELIEF_NONE);
+	gtk_container_add (GTK_CONTAINER (workspace->button), workspace->drawing_area);
+
+	ext_workspace_handle_v1_add_listener (handle, &workspace_handle_listener, workspace);
+	g_object_set_data_full (G_OBJECT (workspace->button),
+				wayland_workspace_key,
+				workspace,
+				(GDestroyNotify)wayland_workspace_destroy);
+	g_signal_connect (workspace->button, "clicked",
+			  G_CALLBACK (wayland_workspace_button_clicked),
+			  workspace);
+	g_signal_connect (workspace->drawing_area, "draw",
+			  G_CALLBACK (wayland_workspace_draw),
+			  workspace);
+	gtk_box_pack_start (GTK_BOX (workspace_manager->box), workspace->button, FALSE, FALSE, 0);
+	gtk_widget_show_all (workspace->button);
+}
+
+static void
+workspace_group_handle_capabilities (void *data,
+				     struct ext_workspace_group_handle_v1 *group,
+				     uint32_t capabilities)
+{
+	/* ignored */
+}
+
+static void
+workspace_group_handle_output_enter (void *data,
+				     struct ext_workspace_group_handle_v1 *group,
+				     struct wl_output *output)
+{
+	/* ignored */
+}
+
+static void
+workspace_group_handle_output_leave (void *data,
+				     struct ext_workspace_group_handle_v1 *group,
+				     struct wl_output *output)
+{
+	/* ignored */
+}
+
+static void
+workspace_group_handle_workspace_enter (void *data,
+					struct ext_workspace_group_handle_v1 *group,
+					struct ext_workspace_handle_v1 *workspace)
+{
+	/* ignored */
+}
+
+static void
+workspace_group_handle_workspace_leave (void *data,
+					struct ext_workspace_group_handle_v1 *group,
+					struct ext_workspace_handle_v1 *workspace)
+{
+	/* ignored */
+}
+
+static void
+workspace_group_handle_removed (void *data,
+				struct ext_workspace_group_handle_v1 *group)
+{
+	WorkspaceManager *workspace_manager = data;
+
+	if (workspace_manager && workspace_manager->group == group)
+		workspace_manager->group = NULL;
+
+	ext_workspace_group_handle_v1_destroy (group);
+}
+
+static const struct ext_workspace_group_handle_v1_listener workspace_group_listener = {
+	.capabilities = workspace_group_handle_capabilities,
+	.output_enter = workspace_group_handle_output_enter,
+	.output_leave = workspace_group_handle_output_leave,
+	.workspace_enter = workspace_group_handle_workspace_enter,
+	.workspace_leave = workspace_group_handle_workspace_leave,
+	.removed = workspace_group_handle_removed,
+};
+
+static void
+workspace_manager_handle_workspace_group (void *data,
+					  struct ext_workspace_manager_v1 *manager,
+					  struct ext_workspace_group_handle_v1 *group)
+{
+	WorkspaceManager *workspace_manager = data;
+
+	if (!workspace_manager->group)
+		workspace_manager->group = group;
+
+	ext_workspace_group_handle_v1_add_listener (group, &workspace_group_listener, workspace_manager);
+}
+
+static void
+workspace_manager_handle_done (void *data,
+			       struct ext_workspace_manager_v1 *manager)
+{
+	/* ignored */
+}
+
+static void
+workspace_manager_handle_finished (void *data,
+				   struct ext_workspace_manager_v1 *manager)
+{
+	WorkspaceManager *workspace_manager = data;
+
+	workspace_manager->manager = NULL;
+	ext_workspace_manager_v1_destroy (manager);
+
+	if (workspace_manager->box)
+		g_object_set_data (G_OBJECT (workspace_manager->box),
+				   workspace_manager_key,
+				   NULL);
+
+	g_free (workspace_manager);
+}
+
+static const struct ext_workspace_manager_v1_listener workspace_manager_listener = {
+	.workspace_group = workspace_manager_handle_workspace_group,
+	.workspace = workspace_manager_handle_workspace,
+	.done = workspace_manager_handle_done,
+	.finished = workspace_manager_handle_finished,
+};
+
+static void
+workspace_manager_disconnected_from_widget (WorkspaceManager *workspace_manager)
+{
+	if (workspace_manager->box)
+	{
+		GList *children = gtk_container_get_children (GTK_CONTAINER (workspace_manager->box));
+		for (GList *iter = children; iter != NULL; iter = g_list_next (iter))
+			gtk_widget_destroy (GTK_WIDGET (iter->data));
+		g_list_free (children);
+		workspace_manager->box = NULL;
+	}
+
+	g_clear_pointer (&workspace_manager->workspaces, g_list_free);
+
+	if (workspace_manager->manager)
+		ext_workspace_manager_v1_stop (workspace_manager->manager);
+}
+
+GtkWidget*
+wayland_workspace_switcher_new ()
+{
+	WorkspaceManager *workspace_manager;
+
+	wayland_tasklist_init_if_needed ();
+
+	if (!workspace_manager_global_id)
+		return gtk_label_new ("Shell does not support ext-workspace-v1");
+
+	workspace_manager = g_new0 (WorkspaceManager, 1);
+	workspace_manager->box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+	workspace_manager->manager = wl_registry_bind (wl_registry_global,
+						      workspace_manager_global_id,
+						      &ext_workspace_manager_v1_interface,
+						      workspace_manager_global_version);
+	ext_workspace_manager_v1_add_listener (workspace_manager->manager,
+					       &workspace_manager_listener,
+					       workspace_manager);
+	g_object_set_data_full (G_OBJECT (workspace_manager->box),
+				workspace_manager_key,
+				workspace_manager,
+				(GDestroyNotify)workspace_manager_disconnected_from_widget);
+	gtk_widget_show (workspace_manager->box);
+	wl_display_roundtrip (wl_display_global);
+
+	return workspace_manager->box;
+}
+
+static WorkspaceManager *
+workspace_switcher_widget_get_manager (GtkWidget *switcher_widget)
+{
+	return g_object_get_data (G_OBJECT (switcher_widget), workspace_manager_key);
+}
+
+void
+wayland_workspace_switcher_set_orientation (GtkWidget* switcher_widget, GtkOrientation orient)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+
+	if (!workspace_manager)
+		return;
+
+	gtk_orientable_set_orientation (GTK_ORIENTABLE (workspace_manager->box), orient);
+}
+
+void
+wayland_workspace_switcher_set_workspace_count (GtkWidget* switcher_widget, int count)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+	int current_count;
+
+	if (!workspace_manager || !workspace_manager->manager || count < 1)
+		return;
+
+	current_count = g_list_length (workspace_manager->workspaces);
+
+	while (current_count < count && workspace_manager->group)
+	{
+		char *name = g_strdup_printf ("Workspace %d", current_count + 1);
+		ext_workspace_group_handle_v1_create_workspace (workspace_manager->group, name);
+		g_free (name);
+		current_count++;
+	}
+
+	while (current_count > count)
+	{
+		GList *last = g_list_last (workspace_manager->workspaces);
+		WaylandWorkspace *workspace;
+
+		if (!last)
+			break;
+
+		workspace = last->data;
+		if (!workspace->workspace)
+			break;
+
+		ext_workspace_handle_v1_remove (workspace->workspace);
+		current_count--;
+	}
+
+	ext_workspace_manager_v1_commit (workspace_manager->manager);
+	wl_display_roundtrip (wl_display_global);
 }
 
 static TasklistManager *
@@ -766,7 +1319,9 @@ void
 wayland_tasklist_set_orientation (GtkWidget* tasklist_widget, GtkOrientation orient)
 {
 	TasklistManager *tasklist = tasklist_widget_get_tasklist (tasklist_widget);
-	g_return_if_fail(tasklist);
+	if (!tasklist)
+		return;
+
 	gtk_orientable_set_orientation (GTK_ORIENTABLE (tasklist->list), orient);
 	gtk_orientable_set_orientation (GTK_ORIENTABLE (tasklist->outer_box), orient);
 }

@@ -69,6 +69,9 @@ enum
 
 G_DEFINE_TYPE (NaGrid, na_grid, GTK_TYPE_GRID)
 
+static void add_host (NaGrid *self,
+                      NaHost *host);
+
 static gint
 compare_items (gconstpointer a,
                gconstpointer b)
@@ -250,7 +253,6 @@ na_grid_init (NaGrid *self)
 
   gtk_grid_set_row_homogeneous (GTK_GRID (self), TRUE);
   gtk_grid_set_column_homogeneous (GTK_GRID (self), TRUE);
-
 }
 
 static void
@@ -268,6 +270,20 @@ add_host (NaGrid *self,
                            G_CALLBACK (item_added_cb), self, 0);
   g_signal_connect_object (host, "item-removed",
                            G_CALLBACK (item_removed_cb), self, 0);
+}
+
+static void
+na_grid_constructed (GObject *object)
+{
+  NaGrid *self = NA_GRID (object);
+  GSettings *settings;
+
+  G_OBJECT_CLASS (na_grid_parent_class)->constructed (object);
+
+  settings = g_settings_new ("org.mate.panel");
+  if (g_settings_get_boolean (settings, "enable-sni-support"))
+    add_host (self, sn_host_v0_new ());
+  g_object_unref (settings);
 }
 
 static void
@@ -320,7 +336,6 @@ na_grid_realize (GtkWidget *widget)
   NaGrid *self = NA_GRID (widget);
   GdkScreen *screen;
   GdkDisplay *display;
-  GSettings *settings;
 
   GTK_WIDGET_CLASS (na_grid_parent_class)->realize (widget);
 
@@ -342,10 +357,6 @@ na_grid_realize (GtkWidget *widget)
     add_host (self, tray_host);
   }
 #endif
-  settings = g_settings_new ("org.mate.panel");
-  if (g_settings_get_boolean (settings, "enable-sni-support"))
-    add_host (self, sn_host_v0_new ());
-  g_object_unref (settings);
 }
 
 static void
@@ -426,6 +437,7 @@ na_grid_class_init (NaGridClass *klass)
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
+  gobject_class->constructed = na_grid_constructed;
   gobject_class->get_property = na_grid_get_property;
   gobject_class->set_property = na_grid_set_property;
 

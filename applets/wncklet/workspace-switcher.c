@@ -31,6 +31,7 @@
 
 #ifdef HAVE_WAYLAND
 #include <gdk/gdkwayland.h>
+#include "wayland-backend.h"
 #endif /* HAVE_WAYLAND */
 
 #include <libmate-desktop/mate-gsettings.h>
@@ -217,8 +218,8 @@ typedef struct {
 
 #ifdef HAVE_X11
 	WnckHandle* wnck_handle;
-#endif
 	WnckScreen* screen;
+#endif
 	PagerWM wm;
 
 	/* Properties: */
@@ -244,12 +245,17 @@ typedef struct {
 	gboolean wrap_workspaces;
 
 	GSettings* settings;
+	GSettings* marco_general_settings;
+	GSettings* marco_workspaces_settings;
 } PagerData;
 
 static void display_properties_dialog(GtkAction* action, PagerData* pager);
 static void display_help_dialog(GtkAction* action, PagerData* pager);
 static void display_about_dialog(GtkAction* action, PagerData* pager);
 static void destroy_pager(GtkWidget* widget, PagerData* pager);
+static void update_workspaces_model(PagerData* pager);
+static void on_num_workspaces_value_changed (GtkSpinButton *button,
+                                             PagerData     *pager);
 
 #ifdef HAVE_X11
 static void pager_update_wnck(PagerData* pager, WnckPager* wnck_pager)
@@ -442,6 +448,11 @@ static void applet_change_orient(MatePanelApplet* applet, MatePanelAppletOrient 
 	pager_update(pager);
 
 	pager_container_set_orientation(PAGER_CONTAINER(pager->pager_container), pager->orientation);
+
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
+#endif /* HAVE_WAYLAND */
 
 	if (pager->label_row_col)
 		gtk_label_set_text(GTK_LABEL(pager->label_row_col), pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));
@@ -644,11 +655,17 @@ static const GtkActionEntry pager_menu_actions[] = {
 static void num_rows_changed(GSettings* settings, gchar* key, PagerData* pager)
 {
 	int n_rows;
+	int max_rows = MAX_REASONABLE_ROWS;
+
+#ifdef HAVE_X11
+	if (pager->screen)
+		max_rows = MIN (wnck_screen_get_workspace_count (pager->screen),
+		                MAX_REASONABLE_ROWS);
+#endif /* HAVE_X11 */
 
 	n_rows = CLAMP (g_settings_get_int (settings, key),
 	                1,
-	                MIN (wnck_screen_get_workspace_count (pager->screen),
-	                     MAX_REASONABLE_ROWS));
+	                max_rows);
 
 	pager->n_rows = n_rows;
 	pager_update(pager);
@@ -713,9 +730,19 @@ static void wrap_workspaces_changed(GSettings* settings, gchar* key, PagerData* 
 	}
 }
 
+static void marco_workspaces_changed(GSettings* settings, gchar* key, PagerData* pager)
+{
+	update_workspaces_model(pager);
+}
+
 static void setup_gsettings(PagerData* pager)
 {
 	pager->settings = mate_panel_applet_settings_new (MATE_PANEL_APPLET (pager->applet), WORKSPACE_SWITCHER_SCHEMA);
+
+	if (mate_gsettings_schema_exists(MARCO_GENERAL_SCHEMA))
+		pager->marco_general_settings = g_settings_new (MARCO_GENERAL_SCHEMA);
+	if (mate_gsettings_schema_exists(MARCO_WORKSPACES_SCHEMA))
+		pager->marco_workspaces_settings = g_settings_new (MARCO_WORKSPACES_SCHEMA);
 
 	g_signal_connect (pager->settings,
 					  "changed::num-rows",
@@ -733,6 +760,18 @@ static void setup_gsettings(PagerData* pager)
 					  "changed::wrap-workspaces",
 					  G_CALLBACK (wrap_workspaces_changed),
 					  pager);
+
+	if (pager->marco_general_settings)
+		g_signal_connect (pager->marco_general_settings,
+		                  "changed::num-workspaces",
+		                  G_CALLBACK (marco_workspaces_changed),
+		                  pager);
+
+	if (pager->marco_workspaces_settings)
+		g_signal_connect (pager->marco_workspaces_settings,
+		                  "changed",
+		                  G_CALLBACK (marco_workspaces_changed),
+		                  pager);
 
 }
 
@@ -758,6 +797,7 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 	pager->wrap_workspaces = g_settings_get_boolean(pager->settings, "wrap-workspaces");
 
 	pager->display_all = g_settings_get_boolean(pager->settings, "display-all-workspaces");
+	pager->wm = PAGER_WM_UNKNOWN;
 
 	switch (mate_panel_applet_get_orient(applet))
 	{
@@ -785,7 +825,9 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 #ifdef HAVE_WAYLAND
 	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
 	{
-		pager->pager = gtk_label_new ("[Pager not supported on Wayland]");
+		pager->wm = PAGER_WM_MARCO;
+		pager->pager = wayland_workspace_switcher_new ();
+		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
 	}
 	else
 #endif /* HAVE_WAYLAND */
@@ -793,8 +835,6 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 	{
 		pager->pager = gtk_label_new ("[Pager not supported on this platform]");
 	}
-
-	pager->wm = PAGER_WM_UNKNOWN;
 
 	GtkStyleContext *context;
 	context = gtk_widget_get_style_context (GTK_WIDGET (applet));
@@ -912,28 +952,57 @@ static void num_rows_value_changed(GtkSpinButton* button, PagerData* pager)
 	g_settings_set_int(pager->settings, "num-rows", gtk_spin_button_get_value_as_int(button));
 }
 
-static const char *get_workspace_name(PagerData* pager, int workspace_index)
+static char *
+workspace_name_key (int workspace_index)
+{
+	return g_strdup_printf ("name-%d", workspace_index + 1);
+}
+
+static int
+get_workspace_count (PagerData *pager)
+{
+#ifdef HAVE_X11
+	if (pager->screen)
+		return wnck_screen_get_workspace_count (pager->screen);
+#endif /* HAVE_X11 */
+
+	if (pager->marco_general_settings)
+		return g_settings_get_int (pager->marco_general_settings, NUM_WORKSPACES);
+
+	return 1;
+}
+
+static char *get_workspace_name(PagerData* pager, int workspace_index)
 {
 #ifdef HAVE_X11
 	if (pager->screen)
 	{
 		WnckWorkspace *workspace = wnck_screen_get_workspace(pager->screen, workspace_index);
-		return wnck_workspace_get_name(workspace);
+		return g_strdup (wnck_workspace_get_name(workspace));
 	}
 #endif /* HAVE_X11 */
 
-	/* Fallback */
-	return "workspace";
+	if (pager->marco_workspaces_settings)
+	{
+		char *key;
+		char *name;
+
+		key = workspace_name_key (workspace_index);
+		name = g_settings_get_string (pager->marco_workspaces_settings, key);
+		g_free (key);
+
+		if (name && *name)
+			return name;
+
+		g_free (name);
+	}
+
+	return g_strdup_printf (_("Workspace %d"), workspace_index + 1);
 }
 
 static void update_workspaces_model(PagerData* pager)
 {
-	int nr_ws = 1;
-
-#ifdef HAVE_X11
-	if (pager->screen)
-		nr_ws = wnck_screen_get_workspace_count (pager->screen);
-#endif /* HAVE_X11 */
+	int nr_ws = get_workspace_count (pager);
 
 	if (pager->properties_dialog)
 	{
@@ -941,15 +1010,25 @@ static void update_workspaces_model(PagerData* pager)
 		GtkTreeIter iter;
 
 		if (nr_ws != gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(pager->num_workspaces_spin)))
+		{
+			g_signal_handlers_block_by_func (pager->num_workspaces_spin,
+			                                 G_CALLBACK (on_num_workspaces_value_changed),
+			                                 pager);
 			gtk_spin_button_set_value(GTK_SPIN_BUTTON(pager->num_workspaces_spin), nr_ws);
+			g_signal_handlers_unblock_by_func (pager->num_workspaces_spin,
+			                                   G_CALLBACK (on_num_workspaces_value_changed),
+			                                   pager);
+		}
 
 		gtk_list_store_clear(pager->workspaces_store);
 
 		for (i = 0; i < nr_ws; i++)
 		{
+			char *name = get_workspace_name(pager, i);
+
 			gtk_list_store_append(pager->workspaces_store, &iter);
-			const char* name = get_workspace_name(pager, i);
 			gtk_list_store_set(pager->workspaces_store, &iter, 0, name, -1);
+			g_free (name);
 		}
 	}
 }
@@ -985,15 +1064,37 @@ static void
 on_num_workspaces_value_changed (GtkSpinButton *button,
                                  PagerData     *pager)
 {
+	int workspace_count = gtk_spin_button_get_value_as_int (button);
+
 #ifdef HAVE_X11
 	if (pager->screen)
 	{
-		int workspace_count = gtk_spin_button_get_value_as_int (button);
 		wnck_screen_change_workspace_count(pager->screen, workspace_count);
 		if (workspace_count < pager->n_rows)
 			g_settings_set_int (pager->settings, "num-rows", workspace_count);
+		return;
 	}
 #endif /* HAVE_X11 */
+
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+		wayland_workspace_switcher_set_workspace_count (pager->pager, workspace_count);
+#endif /* HAVE_WAYLAND */
+
+	if (pager->marco_general_settings)
+	{
+		if (!g_settings_set_int (pager->marco_general_settings, NUM_WORKSPACES, workspace_count))
+		{
+			g_warning ("Failed to set %s %s", MARCO_GENERAL_SCHEMA, NUM_WORKSPACES);
+			return;
+		}
+
+		g_settings_sync ();
+
+		if (workspace_count < pager->n_rows)
+			g_settings_set_int (pager->settings, "num-rows", workspace_count);
+		update_workspaces_model (pager);
+	}
 }
 
 static gboolean workspaces_tree_focused_out(GtkTreeView* treeview, GdkEventFocus* event, PagerData* pager)
@@ -1007,15 +1108,17 @@ static gboolean workspaces_tree_focused_out(GtkTreeView* treeview, GdkEventFocus
 
 static void workspace_name_edited(GtkCellRendererText* cell_renderer_text, const gchar* path, const gchar* new_text, PagerData* pager)
 {
+	const gint* indices;
+	GtkTreePath* p;
+
+	p = gtk_tree_path_new_from_string(path);
+	indices = gtk_tree_path_get_indices(p);
+
 #ifdef HAVE_X11
 	if (pager->screen)
 	{
-		const gint* indices;
 		WnckWorkspace* workspace;
-		GtkTreePath* p;
 
-		p = gtk_tree_path_new_from_string(path);
-		indices = gtk_tree_path_get_indices(p);
 		workspace = wnck_screen_get_workspace(pager->screen, indices[0]);
 
 		if (workspace != NULL)
@@ -1032,8 +1135,25 @@ static void workspace_name_edited(GtkCellRendererText* cell_renderer_text, const
 		}
 
 		gtk_tree_path_free(p);
+		return;
 	}
 #endif
+
+	if (pager->marco_workspaces_settings)
+	{
+		char *key;
+		char *temp_name;
+
+		key = workspace_name_key (indices[0]);
+		temp_name = g_strdup (new_text);
+		g_settings_set_string (pager->marco_workspaces_settings, key, g_strstrip (temp_name));
+		g_free (temp_name);
+		g_free (key);
+
+		update_workspaces_model (pager);
+	}
+
+	gtk_tree_path_free(p);
 }
 
 static void properties_dialog_destroyed(GtkWidget* widget, PagerData* pager)
@@ -1289,6 +1409,8 @@ static void destroy_pager(GtkWidget* widget, PagerData* pager)
 	g_signal_handlers_disconnect_by_data (pager->settings, pager);
 
 	g_object_unref (pager->settings);
+	g_clear_object (&pager->marco_general_settings);
+	g_clear_object (&pager->marco_workspaces_settings);
 
 	if (pager->properties_dialog)
 		gtk_widget_destroy(pager->properties_dialog);

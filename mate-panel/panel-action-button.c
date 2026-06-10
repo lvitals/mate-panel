@@ -195,6 +195,83 @@ panel_action_lock_invoke_menu (PanelActionButton *button,
 
 /* Log Out
  */
+#ifdef HAVE_WAYLAND
+static void
+panel_action_logout_confirm_response_cb (GtkWidget           *dialog,
+					 gint                 response_id,
+					 PanelSessionManager *manager)
+{
+	gtk_widget_destroy (dialog);
+
+	if (response_id == GTK_RESPONSE_OK)
+		panel_session_manager_request_logout (manager,
+						      PANEL_SESSION_MANAGER_LOGOUT_MODE_NO_CONFIRMATION);
+
+	g_object_unref (manager);
+}
+
+static void
+panel_action_logout_confirm (GtkWidget           *widget,
+			     PanelSessionManager *manager)
+{
+	GtkWidget *dialog, *hbox, *image, *label, *button, *toplevel;
+	GtkWindow *parent = NULL;
+	GtkStyleContext *context;
+	char *message;
+	const char *user_name;
+
+	user_name = g_get_real_name ();
+	if (user_name == NULL || user_name[0] == '\0')
+		user_name = g_get_user_name ();
+
+	message = g_strdup_printf (_("Log out %s of this session?"), user_name);
+	toplevel = gtk_widget_get_toplevel (widget);
+	if (GTK_IS_WINDOW (toplevel))
+		parent = GTK_WINDOW (toplevel);
+
+	dialog = gtk_dialog_new_with_buttons (_("Log Out"),
+					      parent,
+					      GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+					      _("_Cancel"),
+					      GTK_RESPONSE_CANCEL,
+					      NULL);
+	gtk_window_set_icon_name (GTK_WINDOW (dialog), PANEL_ICON_LOGOUT);
+
+	context = gtk_widget_get_style_context (GTK_WIDGET (dialog));
+	gtk_style_context_add_class (context, "logout-dialog");
+
+	button = gtk_dialog_add_button (GTK_DIALOG (dialog),
+					_("_Log Out"),
+					GTK_RESPONSE_OK);
+	gtk_button_set_image (GTK_BUTTON (button),
+			      gtk_image_new_from_icon_name (PANEL_ICON_LOGOUT,
+							    GTK_ICON_SIZE_BUTTON));
+	gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_CANCEL);
+
+	hbox = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+	gtk_container_set_border_width (GTK_CONTAINER (hbox), 16);
+
+	image = gtk_image_new_from_icon_name (PANEL_ICON_LOGOUT,
+					      GTK_ICON_SIZE_DIALOG);
+	gtk_box_pack_start (GTK_BOX (hbox), image, FALSE, FALSE, 0);
+
+	label = gtk_label_new (message);
+	gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+	gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+	gtk_box_pack_start (GTK_BOX (hbox), label, TRUE, TRUE, 0);
+
+	gtk_container_add (GTK_CONTAINER (gtk_dialog_get_content_area (GTK_DIALOG (dialog))),
+			   hbox);
+
+	g_signal_connect (dialog, "response",
+			  G_CALLBACK (panel_action_logout_confirm_response_cb),
+			  g_object_ref (manager));
+
+	g_free (message);
+	gtk_widget_show_all (dialog);
+}
+#endif
+
 static void
 panel_action_logout (GtkWidget *widget)
 {
@@ -213,12 +290,20 @@ panel_action_logout (GtkWidget *widget)
 	if (!prompt)
 		panel_session_manager_request_logout (manager,
 						      PANEL_SESSION_MANAGER_LOGOUT_MODE_NO_CONFIRMATION);
-	else
+	else {
+#ifdef HAVE_WAYLAND
+		GdkDisplay *display = gdk_display_get_default ();
+		if (GDK_IS_WAYLAND_DISPLAY (display)) {
+			panel_action_logout_confirm (widget, manager);
+			return;
+		}
+#endif
 		/* FIXME: we need to use widget to get the screen for the
 		 * confirmation dialog, see
 		 * http://bugzilla.gnome.org/show_bug.cgi?id=536914 */
 		panel_session_manager_request_logout (manager,
 						      PANEL_SESSION_MANAGER_LOGOUT_MODE_NORMAL);
+	}
 }
 
 /* Shutdown

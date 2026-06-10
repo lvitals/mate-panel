@@ -37,11 +37,14 @@ extern "C" {
 
 void toggle_show_desktop(GtkWidget *button, gboolean desktop_showing);
 GtkWidget* wayland_tasklist_new (void);
+GtkWidget* wayland_selector_new (void);
+GtkWidget* wayland_workspace_switcher_new (void);
 void wayland_tasklist_set_orientation (GtkWidget* tasklist_widget, GtkOrientation orient);
+void wayland_workspace_switcher_set_orientation (GtkWidget* switcher_widget, GtkOrientation orient);
+void wayland_workspace_switcher_set_workspace_count (GtkWidget* switcher_widget, int count);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* _WNCKLET_APPLET_WAYLAND_BACKEND_H_ */
-

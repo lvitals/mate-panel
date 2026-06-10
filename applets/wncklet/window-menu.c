@@ -43,6 +43,7 @@
 
 #ifdef HAVE_WAYLAND
 #include <gdk/gdkwayland.h>
+#include "wayland-backend.h"
 #endif /* HAVE_WAYLAND */
 
 #ifndef HAVE_X11
@@ -214,9 +215,17 @@ static gboolean window_menu_key_press_event(GtkWidget* widget, GdkEventKey* even
 			 *
 			 * As that function is private its code is replicated here.
 			 */
-			menu_shell = GTK_MENU_SHELL(window_menu->selector);
-
-			gtk_menu_shell_select_first(menu_shell, FALSE);
+			if (GTK_IS_MENU_SHELL (window_menu->selector))
+			{
+				menu_shell = GTK_MENU_SHELL(window_menu->selector);
+				gtk_menu_shell_select_first(menu_shell, FALSE);
+			}
+#ifdef HAVE_WAYLAND
+			else if (GTK_IS_MENU_BUTTON (window_menu->selector))
+			{
+				gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (window_menu->selector), TRUE);
+			}
+#endif
 			return TRUE;
 		default:
 			break;
@@ -271,7 +280,7 @@ gboolean window_menu_applet_fill(MatePanelApplet* applet)
 #ifdef HAVE_WAYLAND
 	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
 	{
-		window_menu->selector = gtk_label_new ("[Window menu not supported on Wayland]");
+		window_menu->selector = wayland_selector_new ();
 	}
 	else
 #endif /* HAVE_WAYLAND */
@@ -296,9 +305,10 @@ gboolean window_menu_applet_fill(MatePanelApplet* applet)
 	                        G_CALLBACK (window_menu_on_draw),
 	                        window_menu);
 
-	g_signal_connect (window_menu->selector, "button_press_event",
-	                  G_CALLBACK (filter_button_press),
-	                  window_menu);
+	if (GTK_IS_MENU_SHELL (window_menu->selector))
+		g_signal_connect (window_menu->selector, "button_press_event",
+		                  G_CALLBACK (filter_button_press),
+		                  window_menu);
 
 	gtk_widget_show_all(GTK_WIDGET(window_menu->applet));
 
