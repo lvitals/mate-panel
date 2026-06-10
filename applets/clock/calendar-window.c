@@ -278,9 +278,11 @@ expand_collapse (GtkWidget  *expander,
 {
 	GtkWidget *box = data;
 
-	gtk_container_foreach (GTK_CONTAINER (box),
-			       (GtkCallback)expand_collapse_child,
-			       expander);
+	if (GTK_IS_CONTAINER (box)) {
+		gtk_container_foreach (GTK_CONTAINER (box),
+				       (GtkCallback)expand_collapse_child,
+				       expander);
+	}
 }
 
 static void add_child (GtkContainer *container,

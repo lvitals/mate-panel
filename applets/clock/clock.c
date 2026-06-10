@@ -1170,9 +1170,11 @@ create_clock_window (ClockData *cd)
 
         cd->clock_group = gtk_size_group_new (GTK_SIZE_GROUP_HORIZONTAL);
 
-        gtk_container_foreach (GTK_CONTAINER (locations_box),
-                               (GtkCallback) add_to_group,
-                               cd->clock_group);
+        if (GTK_IS_CONTAINER (locations_box)) {
+                gtk_container_foreach (GTK_CONTAINER (locations_box),
+                                       (GtkCallback) add_to_group,
+                                       cd->clock_group);
+        }
 }
 
 static gint
