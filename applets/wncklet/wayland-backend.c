@@ -226,22 +226,45 @@ tasklist_manager_disconnected_from_widget (TasklistManager *tasklist)
 {
 	if (tasklist->list)
 	{
-		GList *children = gtk_container_get_children (GTK_CONTAINER (tasklist->list));
-		for (GList *iter = children; iter != NULL; iter = g_list_next (iter))
-			gtk_widget_destroy (GTK_WIDGET (iter->data));
-		g_list_free(children);
+		if (GTK_IS_CONTAINER (tasklist->list))
+		{
+			GList *children = gtk_container_get_children (GTK_CONTAINER (tasklist->list));
+			for (GList *iter = children; iter != NULL; iter = g_list_next (iter))
+			{
+				if (GTK_IS_WIDGET (iter->data))
+					gtk_widget_destroy (GTK_WIDGET (iter->data));
+			}
+			g_list_free (children);
+		}
+
+		if (G_IS_OBJECT (tasklist->list))
+			g_object_remove_weak_pointer (G_OBJECT (tasklist->list), (gpointer *)&tasklist->list);
+
 		tasklist->list = NULL;
 	}
 
 	if (tasklist->outer_box)
+	{
+		if (G_IS_OBJECT (tasklist->outer_box))
+			g_object_remove_weak_pointer (G_OBJECT (tasklist->outer_box), (gpointer *)&tasklist->outer_box);
+
 		tasklist->outer_box = NULL;
+	}
 
 	if (tasklist->manager)
 		zwlr_foreign_toplevel_manager_v1_stop (tasklist->manager);
 
 	if (tasklist->context_menu)
 	{
-		gtk_widget_destroy (tasklist->context_menu->menu);
+		if (tasklist->context_menu->menu)
+		{
+			if (GTK_IS_WIDGET (tasklist->context_menu->menu))
+				gtk_widget_destroy (tasklist->context_menu->menu);
+
+			if (tasklist->context_menu->menu && G_IS_OBJECT (tasklist->context_menu->menu))
+				g_object_remove_weak_pointer (G_OBJECT (tasklist->context_menu->menu), (gpointer *)&tasklist->context_menu->menu);
+		}
+
 		g_free (tasklist->context_menu);
 		tasklist->context_menu = NULL;
 	}
@@ -301,6 +324,8 @@ context_menu_new ()
 
 	gtk_widget_show_all (menu->menu);
 
+	g_object_add_weak_pointer (G_OBJECT (menu->menu), (gpointer *)&menu->menu);
+
 	g_signal_connect (menu->maximize, "activate", G_CALLBACK (menu_on_maximize), NULL);
 	g_signal_connect (menu->minimize, "activate", G_CALLBACK (menu_on_minimize), NULL);
 	g_signal_connect (menu->close, "activate", G_CALLBACK (menu_on_close), NULL);
@@ -346,6 +371,10 @@ tasklist_manager_new (TasklistMode mode)
 	zwlr_foreign_toplevel_manager_v1_add_listener (tasklist->manager,
 						       &foreign_toplevel_manager_listener,
 						       tasklist);
+
+	g_object_add_weak_pointer (G_OBJECT (tasklist->list), (gpointer *)&tasklist->list);
+	g_object_add_weak_pointer (G_OBJECT (tasklist->outer_box), (gpointer *)&tasklist->outer_box);
+
 	g_object_set_data_full (G_OBJECT (tasklist->outer_box),
 				tasklist_manager_key,
 				tasklist,
@@ -1211,10 +1240,20 @@ workspace_manager_disconnected_from_widget (WorkspaceManager *workspace_manager)
 {
 	if (workspace_manager->box)
 	{
-		GList *children = gtk_container_get_children (GTK_CONTAINER (workspace_manager->box));
-		for (GList *iter = children; iter != NULL; iter = g_list_next (iter))
-			gtk_widget_destroy (GTK_WIDGET (iter->data));
-		g_list_free (children);
+		if (GTK_IS_CONTAINER (workspace_manager->box))
+		{
+			GList *children = gtk_container_get_children (GTK_CONTAINER (workspace_manager->box));
+			for (GList *iter = children; iter != NULL; iter = g_list_next (iter))
+			{
+				if (GTK_IS_WIDGET (iter->data))
+					gtk_widget_destroy (GTK_WIDGET (iter->data));
+			}
+			g_list_free (children);
+		}
+
+		if (G_IS_OBJECT (workspace_manager->box))
+			g_object_remove_weak_pointer (G_OBJECT (workspace_manager->box), (gpointer *)&workspace_manager->box);
+
 		workspace_manager->box = NULL;
 	}
 
@@ -1243,6 +1282,9 @@ wayland_workspace_switcher_new ()
 	ext_workspace_manager_v1_add_listener (workspace_manager->manager,
 					       &workspace_manager_listener,
 					       workspace_manager);
+
+	g_object_add_weak_pointer (G_OBJECT (workspace_manager->box), (gpointer *)&workspace_manager->box);
+
 	g_object_set_data_full (G_OBJECT (workspace_manager->box),
 				workspace_manager_key,
 				workspace_manager,
