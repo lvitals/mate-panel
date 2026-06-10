@@ -49,8 +49,19 @@ wayland_panel_toplevel_update_placement (PanelToplevel* toplevel)
 	gboolean expand;
 	PanelOrientation orientation;
 	gboolean anchor[GTK_LAYER_SHELL_EDGE_ENTRY_NUMBER];
+	int monitor_index;
 
 	window = GTK_WINDOW (toplevel);
+
+	monitor_index = panel_toplevel_get_monitor (toplevel);
+	if (monitor_index >= 0) {
+		GdkDisplay *display = gtk_widget_get_display (GTK_WIDGET (toplevel));
+		GdkMonitor *monitor = gdk_display_get_monitor (display, monitor_index);
+		if (monitor) {
+			gtk_layer_set_monitor (window, monitor);
+		}
+	}
+
 	expand = panel_toplevel_get_expand (toplevel);
 	orientation = panel_toplevel_get_orientation (toplevel);
 	for (int i = 0; i < GTK_LAYER_SHELL_EDGE_ENTRY_NUMBER; i++)
