@@ -56,8 +56,10 @@ drawer_focus_panel_widget (Drawer           *drawer,
     panel_widget = panel_toplevel_get_panel_widget (drawer->toplevel);
 
     gtk_window_present (GTK_WINDOW (drawer->toplevel));
-    gtk_container_set_focus_child (GTK_CONTAINER (panel_widget), NULL);
-    gtk_widget_child_focus (GTK_WIDGET (panel_widget), direction);
+    if (GTK_IS_CONTAINER (panel_widget)) {
+        gtk_container_set_focus_child (GTK_CONTAINER (panel_widget), NULL);
+        gtk_widget_child_focus (GTK_WIDGET (panel_widget), direction);
+    }
 }
 
 static gboolean
@@ -362,6 +364,16 @@ destroy_drawer (GtkWidget *widget,
 }
 
 static void
+drawer_free (Drawer *drawer)
+{
+    if (drawer->info && drawer->info->settings) {
+        g_signal_handlers_disconnect_by_data (drawer->info->settings, drawer);
+    }
+
+    g_free (drawer);
+}
+
+static void
 drawer_deletion_response (GtkWidget   *dialog,
                           int          response,
                           Drawer      *drawer)
@@ -524,7 +536,7 @@ load_drawer_applet (char          *toplevel_id,
     panel_widget = panel_toplevel_get_panel_widget (parent_toplevel);
 
     drawer->info = mate_panel_applet_register (drawer->button, drawer,
-                                          (GDestroyNotify) g_free,
+                                          (GDestroyNotify) drawer_free,
                                           panel_widget,
                                           locked, pos, exactpos,
                                           PANEL_OBJECT_DRAWER, id);
