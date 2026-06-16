@@ -321,6 +321,7 @@ panel_action_logout_confirm (GtkWidget           *widget,
 	label = gtk_label_new (NULL);
 	gtk_label_set_markup (GTK_LABEL (label), message);
 	gtk_label_set_line_wrap (GTK_LABEL (label), TRUE);
+	gtk_label_set_width_chars (GTK_LABEL (label), 55);
 	gtk_label_set_xalign (GTK_LABEL (label), 0.0);
 	gtk_box_pack_start (GTK_BOX (vbox), label, FALSE, FALSE, 0);
 	g_free (message);
@@ -331,6 +332,7 @@ panel_action_logout_confirm (GtkWidget           *widget,
 					 state->seconds_remaining);
 	state->timer_label = gtk_label_new (timer_message);
 	gtk_label_set_line_wrap (GTK_LABEL (state->timer_label), TRUE);
+	gtk_label_set_width_chars (GTK_LABEL (state->timer_label), 55);
 	gtk_label_set_xalign (GTK_LABEL (state->timer_label), 0.0);
 	gtk_box_pack_start (GTK_BOX (vbox), state->timer_label, FALSE, FALSE, 0);
 	g_free (timer_message);
