@@ -260,6 +260,7 @@ static void panel_toplevel_update_monitor(PanelToplevel* toplevel);
 static void panel_toplevel_set_monitor_internal(PanelToplevel* toplevel, int monitor, gboolean force_resize);
 
 static void panel_toplevel_drag_threshold_changed (PanelToplevel *toplevel);
+static void panel_toplevel_gtk_theme_changed (PanelToplevel *toplevel);
 static void panel_toplevel_on_monitors_changed (GdkScreen *screen, gpointer user_data);
 
 static void
@@ -3109,6 +3110,9 @@ panel_toplevel_dispose (GObject *widget)
 		g_signal_handlers_disconnect_by_func (toplevel->priv->gtk_settings,
 						      G_CALLBACK (panel_toplevel_drag_threshold_changed),
 						      toplevel);
+		g_signal_handlers_disconnect_by_func (toplevel->priv->gtk_settings,
+						      G_CALLBACK (panel_toplevel_gtk_theme_changed),
+						      toplevel);
 		toplevel->priv->gtk_settings = NULL;
 
 		panel_background_free (&toplevel->background);
@@ -4042,17 +4046,54 @@ panel_toplevel_drag_threshold_changed (PanelToplevel *toplevel)
 }
 
 static void
+panel_toplevel_gtk_theme_changed (PanelToplevel *toplevel)
+{
+	GtkWidget *widget;
+
+	g_return_if_fail (PANEL_IS_TOPLEVEL (toplevel));
+
+	widget = GTK_WIDGET (toplevel);
+
+	gtk_widget_reset_style (widget);
+	update_style_classes (toplevel);
+	set_background_default_style (widget);
+	panel_background_apply_css (&toplevel->background, widget);
+
+	if (toplevel->priv->panel_widget) {
+		gtk_widget_reset_style (GTK_WIDGET (toplevel->priv->panel_widget));
+		gtk_widget_queue_draw (GTK_WIDGET (toplevel->priv->panel_widget));
+		panel_widget_emit_background_changed (toplevel->priv->panel_widget);
+	}
+
+	gtk_widget_queue_resize (widget);
+	gtk_widget_queue_draw (widget);
+}
+
+static void
 panel_toplevel_update_gtk_settings (PanelToplevel *toplevel)
 {
 	if (toplevel->priv->gtk_settings)
 		g_signal_handlers_disconnect_by_func (toplevel->priv->gtk_settings,
 						      G_CALLBACK (panel_toplevel_drag_threshold_changed),
 						      toplevel);
+	if (toplevel->priv->gtk_settings)
+		g_signal_handlers_disconnect_by_func (toplevel->priv->gtk_settings,
+						      G_CALLBACK (panel_toplevel_gtk_theme_changed),
+						      toplevel);
 
 	toplevel->priv->gtk_settings = gtk_widget_get_settings (GTK_WIDGET (toplevel->priv->panel_widget));
 
 	g_signal_connect_swapped (toplevel->priv->gtk_settings, "notify::gtk-dnd-drag-threshold",
 	                          G_CALLBACK (panel_toplevel_drag_threshold_changed),
+	                          toplevel);
+	g_signal_connect_swapped (toplevel->priv->gtk_settings, "notify::gtk-theme-name",
+	                          G_CALLBACK (panel_toplevel_gtk_theme_changed),
+	                          toplevel);
+	g_signal_connect_swapped (toplevel->priv->gtk_settings, "notify::gtk-color-scheme",
+	                          G_CALLBACK (panel_toplevel_gtk_theme_changed),
+	                          toplevel);
+	g_signal_connect_swapped (toplevel->priv->gtk_settings, "notify::gtk-application-prefer-dark-theme",
+	                          G_CALLBACK (panel_toplevel_gtk_theme_changed),
 	                          toplevel);
 
 	panel_toplevel_drag_threshold_changed (toplevel);
@@ -4863,6 +4904,7 @@ panel_toplevel_init (PanelToplevel *toplevel)
 	toplevel->priv->initial_animation_done   = FALSE;
 
 	widget = GTK_WIDGET (toplevel);
+	gtk_widget_set_name (widget, "panel_window");
 	gtk_widget_add_events (widget,
 			       GDK_BUTTON_PRESS_MASK |
 			       GDK_BUTTON_RELEASE_MASK |

@@ -62,6 +62,9 @@ void panel_background_apply_css (PanelBackground *background, GtkWidget *widget)
 		g_assert_not_reached ();
 		break;
 	}
+
+	gtk_widget_set_app_paintable (widget, TRUE);
+	gtk_widget_queue_draw (widget);
 }
 
 static void

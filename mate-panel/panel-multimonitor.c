@@ -521,31 +521,59 @@ panel_multimonitor_monitors ()
 	return monitor_count;
 }
 
+static int
+panel_multimonitor_fallback_dimension (gboolean width)
+{
+	GdkDisplay   *display;
+	GdkMonitor   *monitor;
+	GdkRectangle  geometry;
+
+	display = gdk_display_get_default ();
+	if (!display || gdk_display_get_n_monitors (display) <= 0)
+		return 1;
+
+	monitor = gdk_display_get_monitor (display, 0);
+	if (!monitor)
+		return 1;
+
+	gdk_monitor_get_geometry (monitor, &geometry);
+
+	return MAX (width ? geometry.width : geometry.height, 1);
+}
+
 int
 panel_multimonitor_x (int monitor)
 {
-	g_return_val_if_fail (monitor >= 0 && monitor < monitor_count, 0);
+	if (monitor < 0 || monitor >= monitor_count)
+		return 0;
+
 	return geometries [monitor].x;
 }
 
 int
 panel_multimonitor_y (int monitor)
 {
-	g_return_val_if_fail (monitor >= 0 && monitor < monitor_count, 0);
+	if (monitor < 0 || monitor >= monitor_count)
+		return 0;
+
 	return geometries [monitor].y;
 }
 
 int
 panel_multimonitor_width (int monitor)
 {
-	g_return_val_if_fail (monitor >= 0 && monitor < monitor_count, 0);
+	if (monitor < 0 || monitor >= monitor_count)
+		return panel_multimonitor_fallback_dimension (TRUE);
+
 	return geometries [monitor].width;
 }
 
 int
 panel_multimonitor_height (int monitor)
 {
-	g_return_val_if_fail (monitor >= 0 && monitor < monitor_count, 0);
+	if (monitor < 0 || monitor >= monitor_count)
+		return panel_multimonitor_fallback_dimension (FALSE);
+
 	return geometries [monitor].height;
 }
 

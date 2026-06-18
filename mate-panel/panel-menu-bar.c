@@ -258,7 +258,6 @@ static void panel_menu_bar_size_allocate(GtkWidget* widget, GtkAllocation* alloc
 {
 	GtkAllocation old_allocation;
 	GtkAllocation widget_allocation;
-	PanelBackground* background;
 
 	gtk_widget_get_allocation(widget, &widget_allocation);
 
@@ -274,11 +273,13 @@ static void panel_menu_bar_size_allocate(GtkWidget* widget, GtkAllocation* alloc
 		return;
 	}
 
-	background = &PANEL_MENU_BAR(widget)->priv->panel->toplevel->background;
-	if (background->type == PANEL_BACK_NONE || (background->type == PANEL_BACK_COLOR && !background->has_alpha))
-	{
-		return;
-	}
+	panel_menu_bar_change_background(PANEL_MENU_BAR(widget));
+}
+
+static void panel_menu_bar_style_updated(GtkWidget* widget)
+{
+	if (GTK_WIDGET_CLASS(panel_menu_bar_parent_class)->style_updated)
+		GTK_WIDGET_CLASS(panel_menu_bar_parent_class)->style_updated(widget);
 
 	panel_menu_bar_change_background(PANEL_MENU_BAR(widget));
 }
@@ -312,6 +313,7 @@ static void panel_menu_bar_class_init(PanelMenuBarClass* klass)
 
 	widget_class->parent_set = panel_menu_bar_parent_set;
 	widget_class->size_allocate = panel_menu_bar_size_allocate;
+	widget_class->style_updated = panel_menu_bar_style_updated;
 
 	g_object_class_install_property(gobject_class, PROP_ORIENTATION, g_param_spec_enum("orientation", "Orientation", "The PanelMenuBar orientation", PANEL_TYPE_ORIENTATION, PANEL_ORIENTATION_TOP, G_PARAM_READWRITE));
 }
