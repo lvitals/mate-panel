@@ -4061,6 +4061,7 @@ panel_toplevel_gtk_theme_changed (PanelToplevel *toplevel)
 
 	if (toplevel->priv->panel_widget) {
 		gtk_widget_reset_style (GTK_WIDGET (toplevel->priv->panel_widget));
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->panel_widget));
 		gtk_widget_queue_draw (GTK_WIDGET (toplevel->priv->panel_widget));
 		panel_widget_emit_background_changed (toplevel->priv->panel_widget);
 	}
@@ -4107,8 +4108,6 @@ panel_toplevel_screen_changed (GtkWidget *widget,
 
 	if (GTK_WIDGET_CLASS (panel_toplevel_parent_class)->screen_changed)
 		GTK_WIDGET_CLASS (panel_toplevel_parent_class)->screen_changed (widget, previous_screen);
-
-	panel_toplevel_gtk_theme_changed (PANEL_TOPLEVEL (widget));
 
 	gtk_widget_queue_resize (widget);
 }
