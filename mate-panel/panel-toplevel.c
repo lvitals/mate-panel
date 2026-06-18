@@ -4108,6 +4108,8 @@ panel_toplevel_screen_changed (GtkWidget *widget,
 	if (GTK_WIDGET_CLASS (panel_toplevel_parent_class)->screen_changed)
 		GTK_WIDGET_CLASS (panel_toplevel_parent_class)->screen_changed (widget, previous_screen);
 
+	panel_toplevel_gtk_theme_changed (PANEL_TOPLEVEL (widget));
+
 	gtk_widget_queue_resize (widget);
 }
 
