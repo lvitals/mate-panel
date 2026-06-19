@@ -168,7 +168,6 @@ panel_frame_draw (GtkWidget      *widget,
 		  cairo_t *cr,
 		  PanelFrameEdge  edges)
 {
-	PanelFrame       *frame = (PanelFrame *) widget;
 	GtkStyleContext  *context;
 	GtkStateFlags     state;
 	GdkRGBA          *bg;
@@ -200,7 +199,7 @@ panel_frame_draw (GtkWidget      *widget,
 
 	cairo_set_line_width (cr, 1);
 
-	if (frame->edges & PANEL_EDGE_BOTTOM && padding.bottom > 0) {
+	if (edges & PANEL_EDGE_BOTTOM && padding.bottom > 0) {
 		if (padding.bottom > 1) {
 			gdk_cairo_set_source_rgba (cr, &dark);
 			cairo_move_to (cr, x + .5, y + height - 2 + .5);
@@ -219,7 +218,7 @@ panel_frame_draw (GtkWidget      *widget,
 		}
 	}
 
-	if (frame->edges & PANEL_EDGE_RIGHT && padding.right > 0) {
+	if (edges & PANEL_EDGE_RIGHT && padding.right > 0) {
 		if (padding.right > 1) {
 			gdk_cairo_set_source_rgba (cr, &dark);
 			cairo_move_to (cr, x + width - 2 - .5, y + .5);
@@ -238,7 +237,7 @@ panel_frame_draw (GtkWidget      *widget,
 		}
 	}
 
-	if (frame->edges & PANEL_EDGE_TOP && padding.top > 0) {
+	if (edges & PANEL_EDGE_TOP && padding.top > 0) {
 		gdk_cairo_set_source_rgba (cr, &light);
 		cairo_move_to (cr, x + .5, y + .5);
 		cairo_line_to (cr, x + width - 1 - .5, y + .5);
@@ -252,7 +251,7 @@ panel_frame_draw (GtkWidget      *widget,
 		}
 	}
 
-	if (frame->edges & PANEL_EDGE_LEFT && padding.left > 0) {
+	if (edges & PANEL_EDGE_LEFT && padding.left > 0) {
 		gdk_cairo_set_source_rgba (cr, &light);
 		cairo_move_to (cr, x + .5, y + .5);
 		cairo_line_to (cr, x + .5, y + height - 1 - .5);

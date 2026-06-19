@@ -53,7 +53,7 @@ void panel_background_apply_css (PanelBackground *background, GtkWidget *widget)
 	switch (effective_type) {
 	case PANEL_BACK_NONE:
 		gtk_style_context_remove_class (context, "mate-custom-panel-background");
-		gtk_widget_set_app_paintable (widget, FALSE);
+		gtk_widget_set_app_paintable (widget, TRUE);
 		break;
 	case PANEL_BACK_COLOR:
 	case PANEL_BACK_IMAGE:
@@ -167,8 +167,6 @@ panel_background_prepare (PanelBackground *background)
 				  (gpointer) &widget);
 
 	if (GTK_IS_WIDGET (widget)) {
-		panel_background_apply_css (background, gtk_widget_get_toplevel(widget));
-		gtk_widget_set_app_paintable(widget,TRUE);
 		gtk_widget_queue_draw (widget);
 	}
 

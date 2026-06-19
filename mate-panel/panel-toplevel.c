@@ -264,11 +264,15 @@ static void panel_toplevel_gtk_theme_changed (PanelToplevel *toplevel);
 static void panel_toplevel_on_monitors_changed (GdkScreen *screen, gpointer user_data);
 
 static void
-update_style_classes (PanelToplevel *toplevel)
+panel_toplevel_update_widget_style_classes (PanelToplevel *toplevel,
+                                            GtkWidget     *widget)
 {
 	GtkStyleContext *context;
 
-	context = gtk_widget_get_style_context (GTK_WIDGET (toplevel));
+	if (!widget)
+		return;
+
+	context = gtk_widget_get_style_context (widget);
 
 	/*ensure the panel BG can always be themed*/
 	/*Without this gtk3.19/20 cannot set the BG color and resetting the bg to system is not immediately applied*/
@@ -307,6 +311,15 @@ update_style_classes (PanelToplevel *toplevel)
 		g_assert_not_reached ();
 		break;
 	}
+}
+
+static void
+update_style_classes (PanelToplevel *toplevel)
+{
+	panel_toplevel_update_widget_style_classes (toplevel, GTK_WIDGET (toplevel));
+	panel_toplevel_update_widget_style_classes (toplevel, GTK_WIDGET (toplevel->priv->grid));
+	panel_toplevel_update_widget_style_classes (toplevel, GTK_WIDGET (toplevel->priv->inner_frame));
+	panel_toplevel_update_widget_style_classes (toplevel, GTK_WIDGET (toplevel->priv->panel_widget));
 }
 
 GSList* panel_toplevel_list_toplevels(void)
@@ -3040,6 +3053,14 @@ panel_toplevel_realize (GtkWidget *widget)
 	set_background_default_style (widget);
 	panel_background_realized (&toplevel->background, window);
 
+	panel_background_apply_css (&toplevel->background, widget);
+	if (toplevel->priv->grid)
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->grid));
+	if (toplevel->priv->inner_frame)
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->inner_frame));
+	if (toplevel->priv->panel_widget)
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->panel_widget));
+
 #ifdef HAVE_X11
 	if (GDK_IS_X11_WINDOW (window)) {
 		panel_struts_set_window_hint (toplevel);
@@ -3344,6 +3365,37 @@ static gboolean panel_toplevel_draw(GtkWidget* widget, cairo_t* cr)
 
 	if (!gtk_widget_is_drawable (widget))
 		return retval;
+
+	/* Clear to transparent; on Wayland gdk_window_set_background_rgba has no
+	 * visual effect, so we must render the panel background via cairo here. */
+	cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba (cr, 0, 0, 0, 0);
+	cairo_paint (cr);
+	cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
+
+	context = gtk_widget_get_style_context (widget);
+	switch (panel_background_effective_type (&toplevel->background)) {
+	case PANEL_BACK_COLOR: {
+		GdkRGBA color = toplevel->background.color;
+		if (!gdk_screen_is_composited (gtk_widget_get_screen (widget)))
+			color.alpha = 1.0;
+		gdk_cairo_set_source_rgba (cr, &color);
+		cairo_paint (cr);
+		break;
+	}
+	case PANEL_BACK_IMAGE:
+		if (toplevel->background.composited_pattern) {
+			cairo_set_source (cr, toplevel->background.composited_pattern);
+			cairo_paint (cr);
+		}
+		break;
+	case PANEL_BACK_NONE:
+	default:
+		gtk_render_background (context, cr, 0, 0,
+		                       gtk_widget_get_allocated_width (widget),
+		                       gtk_widget_get_allocated_height (widget));
+		break;
+	}
 
 	if (GTK_WIDGET_CLASS (panel_toplevel_parent_class)->draw)
 		retval = GTK_WIDGET_CLASS (panel_toplevel_parent_class)->draw (widget, cr);
@@ -4054,13 +4106,21 @@ panel_toplevel_gtk_theme_changed (PanelToplevel *toplevel)
 
 	widget = GTK_WIDGET (toplevel);
 
-	gtk_widget_reset_style (widget);
 	update_style_classes (toplevel);
 	set_background_default_style (widget);
 	panel_background_apply_css (&toplevel->background, widget);
 
+	if (toplevel->priv->grid) {
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->grid));
+		gtk_widget_queue_draw (GTK_WIDGET (toplevel->priv->grid));
+	}
+
+	if (toplevel->priv->inner_frame) {
+		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->inner_frame));
+		gtk_widget_queue_draw (GTK_WIDGET (toplevel->priv->inner_frame));
+	}
+
 	if (toplevel->priv->panel_widget) {
-		gtk_widget_reset_style (GTK_WIDGET (toplevel->priv->panel_widget));
 		panel_background_apply_css (&toplevel->background, GTK_WIDGET (toplevel->priv->panel_widget));
 		gtk_widget_queue_draw (GTK_WIDGET (toplevel->priv->panel_widget));
 		panel_widget_emit_background_changed (toplevel->priv->panel_widget);
