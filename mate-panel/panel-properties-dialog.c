@@ -79,6 +79,10 @@ typedef struct {
 	GtkWidget     *writability_warn_general;
 	GtkWidget     *writability_warn_background;
 
+	gulong         settings_changed_id;
+	gulong         background_settings_changed_id;
+	gboolean       autohide_disabler_pushed;
+
 	/* FIXME: This is a workaround for GTK+ bug #327243 */
 	int            selection_emitted;
 } PanelPropertiesDialog;
@@ -86,21 +90,49 @@ typedef struct {
 static GQuark panel_properties_dialog_quark = 0;
 
 static void panel_properties_dialog_opacity_changed (PanelPropertiesDialog *dialog);
+static void panel_properties_dialog_destroy         (PanelPropertiesDialog *dialog);
 
 static void
 panel_properties_dialog_free (PanelPropertiesDialog *dialog)
 {
-	if (dialog->settings)
+	if (dialog->settings) {
+		if (dialog->settings_changed_id)
+			g_signal_handler_disconnect (dialog->settings,
+						     dialog->settings_changed_id);
 		g_object_unref (dialog->settings);
+	}
 	dialog->settings = NULL;
+	dialog->settings_changed_id = 0;
 
-	if (dialog->background_settings)
+	if (dialog->background_settings) {
+		if (dialog->background_settings_changed_id)
+			g_signal_handler_disconnect (dialog->background_settings,
+						     dialog->background_settings_changed_id);
 		g_object_unref (dialog->background_settings);
+	}
 	dialog->background_settings = NULL;
+	dialog->background_settings_changed_id = 0;
 
-	if (dialog->properties_dialog)
-		gtk_widget_destroy (dialog->properties_dialog);
+	if (dialog->properties_dialog) {
+		GtkWidget *properties_dialog = dialog->properties_dialog;
+
+		dialog->properties_dialog = NULL;
+		g_signal_handlers_disconnect_by_func (properties_dialog,
+						      G_CALLBACK (panel_properties_dialog_destroy),
+						      dialog);
+		gtk_widget_destroy (properties_dialog);
+	}
 	dialog->properties_dialog = NULL;
+
+	if (dialog->toplevel) {
+		if (dialog->autohide_disabler_pushed) {
+			panel_toplevel_pop_autohide_disabler (dialog->toplevel);
+			dialog->autohide_disabler_pushed = FALSE;
+		}
+
+		g_object_unref (dialog->toplevel);
+		dialog->toplevel = NULL;
+	}
 
 	g_free (dialog);
 }
@@ -594,10 +626,16 @@ panel_properties_dialog_response (PanelPropertiesDialog *dialog,
 static void
 panel_properties_dialog_destroy (PanelPropertiesDialog *dialog)
 {
-	panel_toplevel_pop_autohide_disabler (PANEL_TOPLEVEL (dialog->toplevel));
-	g_object_set_qdata (G_OBJECT (dialog->toplevel),
-			    panel_properties_dialog_quark,
-			    NULL);
+	PanelToplevel *toplevel = dialog->toplevel;
+
+	dialog->properties_dialog = NULL;
+
+	if (dialog->autohide_disabler_pushed) {
+		panel_toplevel_pop_autohide_disabler (toplevel);
+		dialog->autohide_disabler_pushed = FALSE;
+	}
+
+	g_object_set_qdata (G_OBJECT (toplevel), panel_properties_dialog_quark, NULL);
 }
 
 static void
@@ -861,7 +899,7 @@ panel_properties_dialog_new (PanelToplevel *toplevel)
 				 dialog,
 				 (GDestroyNotify) panel_properties_dialog_free);
 
-	dialog->toplevel = toplevel;
+	dialog->toplevel = g_object_ref (toplevel);
 
 	gui = gtk_builder_new_from_resource (PANEL_RESOURCE_PATH "panel-properties-dialog.ui");
 	gtk_builder_set_translation_domain (gui, GETTEXT_PACKAGE);
@@ -908,25 +946,28 @@ panel_properties_dialog_new (PanelToplevel *toplevel)
 	g_free (toplevel_background_path);
 	g_free (toplevel_settings_path);
 
-	g_signal_connect (dialog->settings,
-			  "changed",
-			  G_CALLBACK (panel_properties_dialog_toplevel_notify),
-			  dialog);
+	dialog->settings_changed_id =
+		g_signal_connect (dialog->settings,
+				  "changed",
+				  G_CALLBACK (panel_properties_dialog_toplevel_notify),
+				  dialog);
 
 	panel_properties_dialog_setup_color_button      (dialog, gui);
 	panel_properties_dialog_setup_image_chooser     (dialog, gui);
 	panel_properties_dialog_setup_opacity_scale     (dialog, gui);
 	panel_properties_dialog_setup_background_radios (dialog, gui);
 
-	g_signal_connect (dialog->background_settings,
-			  "changed",
-			  G_CALLBACK (panel_properties_dialog_background_notify),
-			  dialog);
+	dialog->background_settings_changed_id =
+		g_signal_connect (dialog->background_settings,
+				  "changed",
+				  G_CALLBACK (panel_properties_dialog_background_notify),
+				  dialog);
 
 	panel_properties_dialog_update_for_attached (dialog,
 						     panel_toplevel_get_is_attached (dialog->toplevel));
 
 	panel_toplevel_push_autohide_disabler (dialog->toplevel);
+	dialog->autohide_disabler_pushed = TRUE;
 	panel_widget_register_open_dialog (panel_toplevel_get_panel_widget (dialog->toplevel),
 					   dialog->properties_dialog);
 	g_object_unref (gui);

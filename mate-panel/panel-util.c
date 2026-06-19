@@ -30,6 +30,9 @@
 #include <gio/gio.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gdk/gdk.h>
+#ifdef GDK_WINDOWING_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
 
 #define MATE_DESKTOP_USE_UNSTABLE_API
 #include <libmate-desktop/mate-desktop-utils.h>
@@ -381,7 +384,29 @@ static char* panel_lock_screen_action_get_command(const char* action)
 	char* command = NULL;
 	gboolean use_gscreensaver = FALSE;
 
-	if (panel_is_program_in_path("mate-screensaver-command") && panel_is_program_in_path("mate-screensaver-preferences"))
+#ifdef GDK_WINDOWING_WAYLAND
+	GdkDisplay *display = gdk_display_get_default ();
+	if (display && GDK_IS_WAYLAND_DISPLAY (display))
+	{
+		if (strcmp (action, "prefs") == 0)
+		{
+			return NULL;
+		}
+		else if (strcmp (action, "activate") == 0 || strcmp (action, "lock") == 0)
+		{
+			if (geteuid () == 0)
+			{
+				return NULL;
+			}
+
+			if (panel_is_program_in_path ("mate-screensaver-command"))
+				return g_strdup_printf ("mate-screensaver-command --%s", action);
+		}
+		return NULL;
+	}
+#endif
+
+	if (panel_is_program_in_path("mate-screensaver-command"))
 	{
 		use_gscreensaver = TRUE;
 	}
@@ -392,7 +417,7 @@ static char* panel_lock_screen_action_get_command(const char* action)
 
 	if (strcmp (action, "prefs") == 0)
 	{
-		if (use_gscreensaver)
+		if (use_gscreensaver && panel_is_program_in_path ("mate-screensaver-preferences"))
 		{
 			command = g_strdup ("mate-screensaver-preferences");
 		}
@@ -1226,4 +1251,3 @@ panel_util_get_file_optional_homedir (const char *location)
 
 	return file;
 }
-
