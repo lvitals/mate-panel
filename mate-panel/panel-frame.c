@@ -298,7 +298,7 @@ panel_frame_set_property (GObject      *object,
 
 	switch (prop_id) {
 	case PROP_EDGES:
-		panel_frame_set_edges (frame, g_value_get_enum (value));
+		panel_frame_set_edges (frame, g_value_get_flags (value));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -320,7 +320,7 @@ panel_frame_get_property (GObject    *object,
 
 	switch (prop_id) {
 	case PROP_EDGES:
-		g_value_set_enum (value, frame->edges);
+		g_value_set_flags (value, frame->edges);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -347,7 +347,7 @@ panel_frame_class_init (PanelFrameClass *klass)
 	g_object_class_install_property (
 		gobject_class,
 		PROP_EDGES,
-		g_param_spec_enum (
+		g_param_spec_flags (
 			"edges",
 			"Edges",
 			"Which edges to draw",

@@ -377,8 +377,9 @@ on_proxy_appeared (GObject      *source_object,
 	panel_applet_container_setup (container);
 
 #ifdef HAVE_X11
-	/* xid always <= 0 when not using X11 */
-	if (container->priv->xid > 0) {
+	/* socket is only created on X11 display; xid may still be > 0 when applet
+	 * runs via XWayland (GDK_BACKEND=x11) while panel is on Wayland */
+	if (container->priv->xid > 0 && container->priv->socket != NULL) {
 		gtk_socket_add_id (GTK_SOCKET (container->priv->socket),
 				   container->priv->xid);
 	}
