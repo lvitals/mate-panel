@@ -1,0 +1,36 @@
+/*** BEGIN file-header ***/
+#ifndef __MATE_PANEL_APPLET_ENUMS_H__
+#define __MATE_PANEL_APPLET_ENUMS_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*** END file-header ***/
+
+/*** BEGIN file-production ***/
+
+/* --- @filename@ --- */
+/*** END file-production ***/
+
+/*** BEGIN value-header ***/
+/*** END value-header ***/
+
+/*** BEGIN value-production ***/
+/*** END value-production ***/
+
+/*** BEGIN value-tail ***/
+/*** END value-tail ***/
+
+/*** BEGIN file-tail ***/
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __MATE_PANEL_APPLET_ENUMS_H__ */
+/*** END file-tail ***/
+
+/*** BEGIN enumeration-production ***/
+#define PANEL_TYPE_@ENUMNAME@ @enum_name@_get_type()
+GType @enum_name@_get_type (void);
+/*** END enumeration-production ***/
