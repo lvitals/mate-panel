@@ -1,66 +1,123 @@
 [![Translation status](https://translate.fedoraproject.org/widget/mate-desktop/svg-badge.svg)](https://translate.fedoraproject.org/engage/mate-desktop/)
 
-mate-panel
-===========
+# MATE Panel
 
-mate-panel contains the MATE panel, the libmate-panel-applet library and
-several applets:
+MATE Panel (`mate-panel`) is a core component of the MATE Desktop Environment. It provides the desktop panels (taskbars) from which users can run applications, launch applets, and perform system tasks.
 
-  + the MATE panel is the area on your desktop from which you can run
-    applications and applets, and perform other tasks.
+Additionally, this package contains:
+* `libmate-panel-applet`: The public library used to develop panel applets.
+* Core applets including:
+  - **Clock Applet**: Displays time, calendar, locations, and weather.
+  - **Fish Applet**: Displays the infamous "Wanda the Fish" with animations and quotes.
+  - **Notification Area (Systray)**: Displays status indicators and legacy system tray icons.
+  - **Window List & Workspace Switcher**: Manages open windows and desktop workspaces.
 
-  + the libmate-panel-applet library allows to develop small applications
-    which may be embedded in the panel. These are called applets.
-    Documentation for the API is available with gtk-doc.
+---
 
-  + the applets supplied here include the Workspace Switcher, the Window
-    List, the Window Selector, the Notification Area, the Clock and the
-    infamous 'Wanda the Fish'.
+## Dependencies
 
-You may download updates to the package from:
+To build MATE Panel from source, you will need the following tools and libraries installed on your system.
 
-   http://pub.mate-desktop.org/releases/
+### Build Tools & Utilities
+* C Compiler (GCC or Clang)
+* Meson Build System (version `0.50.0` or higher)
+* Ninja build backend
+* Git
+* Gettext
+* GLib development tools (providing `glib-genmarshal`, `glib-compile-resources`, `glib-mkenums`)
+* Wayland Scanner (required for Wayland support)
+* Gtk-doc (optional, to build API documentation)
 
-mate-panel is a fork of gnome-panel.
+### Library Dependencies
+* **GLib / GIO / GIO-Unix** (>= 2.50.0)
+* **GObject Introspection** (>= 0.6.7)
+* **Gdk-Pixbuf** (>= 2.26.0)
+* **Pango** (>= 1.15.4)
+* **GTK+ 3** (>= 3.24.0)
+* **MATE Desktop Library** (`mate-desktop-2.0` >= 1.28.2)
+* **Libmate-menu** (`libmate-menu` >= 1.21.0)
+* **Dconf** (>= 0.13.4)
+* **Libwnck 3** (>= 43.0)
+* **Mateweather** (>= 1.17.0, required for the Clock applet)
+* **X11 Libraries**: `x11`, `sm`, `ice`, `xrandr` (optional, for X11 backend support)
+* **Wayland & GTK Layer Shell**: `wayland-client`, `gtk-layer-shell-0` (optional, for Wayland backend support)
+* **Evolution Data Server (EDS)**: `libecal-2.0` and `libedataserver-1.2` (optional, for calendar integration in the Clock applet)
 
-Installation
-============
+---
 
-See the file 'INSTALL'. If you are not using a released version of
-mate-panel (for example, if you checked out the code from git), you
-first need to run :
+## Building and Installing
 
-git submodule init
-git submodule update
-./autogen.sh
+### 1. Initialize and Update Submodules
+The project relies on external submodules (such as `libegg` under `mate-submodules`) which must be initialized and updated before configuring the build:
 
-Build dependencies
-==================
+```bash
+git submodule update --init --recursive
+```
 
-On Ubuntu MATE 18.04 (daily 2018-01-30)
-build-essential
-autopoint
-mate-common
-libglib2.0-dev
-yelp-tools
-gobject-introspection
-libgtk-3-dev
-libmate-desktop-dev
-libmate-menu-dev
-libwnck-3-dev
-libmateweather-dev
+### 2. Configure the Build
+Use Meson to configure the build. It is recommended to use the standard installation directories matching your system layout:
 
-For work-in-progress Wayland support
-gtk-layer-shell (https://github.com/wmww/gtk-layer-shell)
+```bash
+meson setup builddir \
+  --prefix=/usr \
+  --sysconfdir=/etc \
+  --localstatedir=/var \
+  --buildtype=plain
+```
 
-How to report bugs
-==================
+#### Custom Build Options
+You can toggle optional features and backends using `-D<option>=<value>`. Available options include:
 
-Bugs should be reported to the MATE bug tracking system:
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `x11` | feature | `auto` | Enable X11 backend support |
+| `wayland` | feature | `auto` | Enable Wayland backend support (using GTK Layer Shell) |
+| `xrandr` | feature | `auto` | Enable XRandR support (requires X11 backend) |
+| `eds` | feature | `auto` | Enable Evolution Data Server calendar integration |
+| `introspection` | boolean | `true` | Build GObject Introspection data |
+| `gtk-doc` | boolean | `false` | Build API developer documentation |
+| `in-process-applets` | array | `['none']` | Compile specified applets in-process (choices: `none`, `clock`, `fish`, `notification-area`, `wncklet`, `all`) |
 
-   https://github.com/mate-desktop/mate-panel/issues
+*Example (disabling X11 and building only Wayland backend with in-process applets):*
+```bash
+meson setup builddir -Dx11=disabled -Dwayland=enabled -Din-process-applets=clock,wncklet
+```
 
-You will need to create an account for yourself.
+### 3. Compile the Code
+Compile the project using the configured build directory:
 
-Please read the HACKING file for information on where to send changes or
-bugfixes for this package.
+```bash
+meson compile -C builddir
+```
+
+### 4. Install the Panel
+Install the compiled binaries, libraries, schemas, and assets to the system:
+
+```bash
+sudo meson install -C builddir
+```
+
+---
+
+## Legacy Autotools Build (Reference)
+
+For environments still relying on the legacy Autotools build system:
+
+```bash
+./autogen.sh \
+  --prefix=/usr \
+  --sysconfdir=/etc \
+  --localstatedir=/var
+make
+sudo make install
+```
+
+---
+
+## How to Report Bugs
+
+If you encounter any issues or want to request features, please report them to our GitHub issue tracker:
+
+[MATE Panel Issue Tracker](https://github.com/mate-desktop/mate-panel/issues)
+
+For details on contributing, including how to send patches or pull requests, please read the [HACKING](file:///home/leandro/workspaces/mate-desktop/mate-panel/HACKING) file.
