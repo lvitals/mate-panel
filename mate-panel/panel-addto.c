@@ -957,17 +957,19 @@ panel_addto_dialog_free_application_list (GSList *application_list)
 static void
 panel_addto_name_notify (GSettings        *settings,
 			 gchar            *key,
-			 PanelAddtoDialog *dialog);
+			 PanelToplevel    *toplevel);
 
 static void
 panel_addto_dialog_free (PanelAddtoDialog *dialog)
 {
 	GSList      *item;
 
-	if (dialog->panel_widget->toplevel->settings) {
+	if (dialog->panel_widget &&
+	    dialog->panel_widget->toplevel &&
+	    dialog->panel_widget->toplevel->settings) {
 		g_signal_handlers_disconnect_by_func(dialog->panel_widget->toplevel->settings,
 						     G_CALLBACK (panel_addto_name_notify),
-						     dialog);
+						     dialog->panel_widget->toplevel);
 	}
 
 	g_free (dialog->search_text);
@@ -1033,8 +1035,15 @@ panel_addto_name_change (PanelAddtoDialog *dialog,
 static void
 panel_addto_name_notify (GSettings        *settings,
 			 gchar            *key,
-			 PanelAddtoDialog *dialog)
+			 PanelToplevel    *toplevel)
 {
+	PanelAddtoDialog *dialog;
+
+	dialog = g_object_get_qdata (G_OBJECT (toplevel),
+				     panel_addto_dialog_quark);
+	if (dialog == NULL)
+		return;
+
 	gchar *name = g_settings_get_string (settings, key);
 	panel_addto_name_change (dialog, name);
 	g_free (name);
@@ -1258,10 +1267,11 @@ panel_addto_dialog_new (PanelWidget *panel_widget)
 
 	dialog->panel_widget = panel_widget;
 
-	g_signal_connect (dialog->panel_widget->toplevel->settings,
-			  "changed::" PANEL_TOPLEVEL_NAME_KEY,
-			  G_CALLBACK (panel_addto_name_notify),
-			  dialog);
+	g_signal_connect_object (dialog->panel_widget->toplevel->settings,
+				 "changed::" PANEL_TOPLEVEL_NAME_KEY,
+				 G_CALLBACK (panel_addto_name_notify),
+				 dialog->panel_widget->toplevel,
+				 0);
 
 	dialog->addto_dialog = gtk_dialog_new ();
 
