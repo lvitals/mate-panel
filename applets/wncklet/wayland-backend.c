@@ -30,6 +30,7 @@
 
 #include "wayland-backend.h"
 #include "wayland-protocol/ext-workspace-v1-client.h"
+#include "marco-workspace-pager-v1-client.h"
 #include "wayland-protocol/wlr-foreign-toplevel-management-unstable-v1-client.h"
 
 /*shorter than wnck-tasklist due to common use of larger fonts*/
@@ -38,6 +39,9 @@
 /*In the future this could be changable from the panel-prefs dialog*/
 static const int max_button_width = 180;
 static const int icon_size = 16;
+static const int workspace_thumb_width = 48;
+static const int workspace_thumb_height = 24;
+static const int workspace_thumb_min_size = 6;
 int full_button_width;
 
 typedef struct
@@ -78,10 +82,34 @@ typedef struct
 
 typedef struct
 {
+	uint32_t id;
+	char *workspace;
+	int x;
+	int y;
+	int width;
+	int height;
+	gboolean minimized;
+	gboolean active;
+	gboolean omnipresent;
+} PagerWindow;
+
+typedef struct
+{
 	GtkWidget *box;
 	struct ext_workspace_manager_v1 *manager;
+	struct marco_workspace_pager_v1 *pager;
 	struct ext_workspace_group_handle_v1 *group;
 	GList *workspaces;
+	GList *windows;
+	GtkOrientation orientation;
+	int n_rows;
+	gboolean show_all;
+	gboolean display_names;
+	gboolean has_viewport;
+	int viewport_x;
+	int viewport_y;
+	int viewport_width;
+	int viewport_height;
 } WorkspaceManager;
 
 typedef struct
@@ -109,6 +137,8 @@ static uint32_t foreign_toplevel_manager_global_id = 0;
 static uint32_t foreign_toplevel_manager_global_version = 0;
 static uint32_t workspace_manager_global_id = 0;
 static uint32_t workspace_manager_global_version = 0;
+static uint32_t marco_workspace_pager_global_id = 0;
+static uint32_t marco_workspace_pager_global_version = 0;
 
 static ToplevelTask *toplevel_task_new (TasklistManager *tasklist, struct zwlr_foreign_toplevel_handle_v1 *handle);
 
@@ -137,6 +167,12 @@ wl_registry_handle_global (void *_data,
 		workspace_manager_global_version =
 			MIN((uint32_t)ext_workspace_manager_v1_interface.version, version);
 	}
+	else if (strcmp (interface, marco_workspace_pager_manager_v1_interface.name) == 0)
+	{
+		marco_workspace_pager_global_id = id;
+		marco_workspace_pager_global_version =
+			MIN((uint32_t)marco_workspace_pager_manager_v1_interface.version, version);
+	}
 }
 
 static void
@@ -151,6 +187,10 @@ wl_registry_handle_global_remove (void *_data,
 	else if (id == workspace_manager_global_id)
 	{
 		workspace_manager_global_id = 0;
+	}
+	else if (id == marco_workspace_pager_global_id)
+	{
+		marco_workspace_pager_global_id = 0;
 	}
 }
 
@@ -918,8 +958,136 @@ wayland_workspace_update_button (WaylandWorkspace *workspace)
 			       active ? GTK_RELIEF_NORMAL : GTK_RELIEF_NONE);
 	gtk_widget_set_sensitive (workspace->button,
 				  (workspace->capabilities & EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE) != 0);
+	gtk_widget_set_visible (workspace->button,
+				workspace->manager->show_all || active);
 	if (workspace->drawing_area)
 		gtk_widget_queue_draw (workspace->drawing_area);
+}
+
+static void
+workspace_manager_update_item_sizes (WorkspaceManager *workspace_manager)
+{
+	int n_rows;
+	int item_width;
+	int item_height;
+
+	if (!workspace_manager)
+		return;
+
+	n_rows = MAX (workspace_manager->n_rows, 1);
+	item_width = workspace_thumb_width;
+	item_height = workspace_thumb_height;
+
+	if (workspace_manager->orientation == GTK_ORIENTATION_HORIZONTAL)
+		item_height = MAX (workspace_thumb_min_size, workspace_thumb_height / n_rows);
+	else
+		item_width = MAX (workspace_thumb_min_size, workspace_thumb_width / n_rows);
+
+	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
+	{
+		WaylandWorkspace *workspace = iter->data;
+
+		if (workspace->drawing_area)
+			gtk_widget_set_size_request (workspace->drawing_area,
+						     item_width, item_height);
+		if (workspace->button)
+			gtk_widget_set_size_request (workspace->button,
+						     item_width, item_height);
+	}
+}
+
+static void
+workspace_manager_relayout (WorkspaceManager *workspace_manager)
+{
+	int visible_index = 0;
+	int n_rows;
+	int n_cols;
+
+	if (!workspace_manager || !GTK_IS_GRID (workspace_manager->box))
+		return;
+
+	n_rows = MAX (workspace_manager->n_rows, 1);
+	n_cols = n_rows;
+	workspace_manager_update_item_sizes (workspace_manager);
+
+	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
+	{
+		WaylandWorkspace *workspace = iter->data;
+		gboolean active;
+		int row;
+		int col;
+
+		if (!workspace->button)
+			continue;
+
+		active = (workspace->state & EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE) != 0;
+		if (!workspace_manager->show_all && !active)
+		{
+			gtk_widget_hide (workspace->button);
+			continue;
+		}
+
+		if (workspace_manager->orientation == GTK_ORIENTATION_HORIZONTAL)
+		{
+			row = visible_index % n_rows;
+			col = visible_index / n_rows;
+		}
+		else
+		{
+			row = visible_index / n_cols;
+			col = visible_index % n_cols;
+		}
+
+		g_object_ref (workspace->button);
+		gtk_container_remove (GTK_CONTAINER (workspace_manager->box), workspace->button);
+		gtk_grid_attach (GTK_GRID (workspace_manager->box), workspace->button, col, row, 1, 1);
+		g_object_unref (workspace->button);
+		gtk_widget_show (workspace->button);
+		visible_index++;
+	}
+
+	gtk_widget_queue_resize (workspace_manager->box);
+}
+
+static void
+pager_window_free (PagerWindow *window)
+{
+	g_free (window->workspace);
+	g_free (window);
+}
+
+static PagerWindow *
+workspace_manager_find_window (WorkspaceManager *workspace_manager, uint32_t id)
+{
+	for (GList *iter = workspace_manager->windows; iter; iter = iter->next)
+	{
+		PagerWindow *window = iter->data;
+		if (window->id == id)
+			return window;
+	}
+
+	return NULL;
+}
+
+static void
+workspace_manager_queue_workspace_draws (WorkspaceManager *workspace_manager)
+{
+	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
+	{
+		WaylandWorkspace *workspace = iter->data;
+		if (workspace->drawing_area)
+			gtk_widget_queue_draw (workspace->drawing_area);
+	}
+}
+
+static gboolean
+pager_window_belongs_to_workspace (PagerWindow *window, WaylandWorkspace *workspace)
+{
+	if (window->omnipresent)
+		return TRUE;
+
+	return workspace->name && window->workspace &&
+		g_strcmp0 (window->workspace, workspace->name) == 0;
 }
 
 static gboolean
@@ -935,8 +1103,6 @@ wayland_workspace_draw (GtkWidget *widget, cairo_t *cr, WaylandWorkspace *worksp
 	gint width;
 	gint height;
 	gint padding;
-	gint win_w;
-	gint win_h;
 
 	gtk_widget_get_allocation (widget, &allocation);
 	width = allocation.width;
@@ -971,25 +1137,66 @@ wayland_workspace_draw (GtkWidget *widget, cairo_t *cr, WaylandWorkspace *worksp
 		cairo_stroke (cr);
 	}
 
-	/* ext-workspace-v1 does not expose per-window geometry. Draw a compact
-	 * content marker so the Wayland pager resembles the classic pager instead
-	 * of showing workspace name buttons.
-	 */
-	win_w = MAX ((width - (padding * 3)) / 2, 4);
-	win_h = MAX ((height - (padding * 3)) / 2, 3);
-
-	gdk_cairo_set_source_rgba (cr, &window_fill);
-	cairo_rectangle (cr, padding, padding, win_w, win_h);
-	cairo_fill (cr);
-
-	if (active)
+	if (workspace->manager->display_names && workspace->name)
 	{
-		cairo_rectangle (cr,
-				 width - padding - win_w,
-				 height - padding - win_h,
-				 win_w,
-				 win_h);
-		cairo_fill (cr);
+		PangoLayout *layout;
+		GdkRGBA text = border;
+
+		layout = gtk_widget_create_pango_layout (widget, workspace->name);
+		pango_layout_set_width (layout, MAX (1, width - 2 * padding) * PANGO_SCALE);
+		pango_layout_set_height (layout, MAX (1, height - 2 * padding) * PANGO_SCALE);
+		pango_layout_set_ellipsize (layout, PANGO_ELLIPSIZE_END);
+		pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
+		gdk_cairo_set_source_rgba (cr, &text);
+		cairo_move_to (cr, padding, padding);
+		pango_cairo_show_layout (cr, layout);
+		g_object_unref (layout);
+		return FALSE;
+	}
+
+	if (workspace->manager->has_viewport && workspace->manager->windows)
+	{
+		double scale_x = (double)MAX (1, width - 2 * padding) /
+			MAX (1, workspace->manager->viewport_width);
+		double scale_y = (double)MAX (1, height - 2 * padding) /
+			MAX (1, workspace->manager->viewport_height);
+
+		for (GList *iter = workspace->manager->windows; iter; iter = iter->next)
+		{
+			PagerWindow *window = iter->data;
+			double x;
+			double y;
+			double w;
+			double h;
+
+			if (window->minimized || !pager_window_belongs_to_workspace (window, workspace))
+				continue;
+
+			x = padding + (window->x - workspace->manager->viewport_x) * scale_x;
+			y = padding + (window->y - workspace->manager->viewport_y) * scale_y;
+			w = MAX (3.0, window->width * scale_x);
+			h = MAX (3.0, window->height * scale_y);
+
+			w = MIN (w, width - padding - x);
+			h = MIN (h, height - padding - y);
+			if (w <= 0 || h <= 0)
+				continue;
+
+			gdk_cairo_set_source_rgba (cr, &window_fill);
+			cairo_rectangle (cr, x, y, w, h);
+			cairo_fill_preserve (cr);
+			if (window->active)
+			{
+				gdk_cairo_set_source_rgba (cr, &border);
+				cairo_stroke (cr);
+			}
+			else
+			{
+				cairo_new_path (cr);
+			}
+		}
+
+		return FALSE;
 	}
 
 	return FALSE;
@@ -1054,6 +1261,7 @@ wayland_workspace_handle_state (void *data,
 
 	workspace->state = state;
 	wayland_workspace_update_button (workspace);
+	workspace_manager_relayout (workspace->manager);
 }
 
 static void
@@ -1111,7 +1319,6 @@ workspace_manager_handle_workspace (void *data,
 	workspace_manager->workspaces = g_list_append (workspace_manager->workspaces, workspace);
 	workspace->button = gtk_button_new ();
 	workspace->drawing_area = gtk_drawing_area_new ();
-	gtk_widget_set_size_request (workspace->drawing_area, 48, 24);
 	gtk_button_set_relief (GTK_BUTTON (workspace->button), GTK_RELIEF_NONE);
 	gtk_container_add (GTK_CONTAINER (workspace->button), workspace->drawing_area);
 
@@ -1126,8 +1333,11 @@ workspace_manager_handle_workspace (void *data,
 	g_signal_connect (workspace->drawing_area, "draw",
 			  G_CALLBACK (wayland_workspace_draw),
 			  workspace);
-	gtk_box_pack_start (GTK_BOX (workspace_manager->box), workspace->button, FALSE, FALSE, 0);
+	gtk_grid_attach (GTK_GRID (workspace_manager->box), workspace->button,
+			 g_list_length (workspace_manager->workspaces) - 1, 0, 1, 1);
 	gtk_widget_show_all (workspace->button);
+	wayland_workspace_update_button (workspace);
+	workspace_manager_relayout (workspace_manager);
 }
 
 static void
@@ -1189,6 +1399,119 @@ static const struct ext_workspace_group_handle_v1_listener workspace_group_liste
 	.workspace_enter = workspace_group_handle_workspace_enter,
 	.workspace_leave = workspace_group_handle_workspace_leave,
 	.removed = workspace_group_handle_removed,
+};
+
+static void
+marco_workspace_pager_handle_viewport (void *data,
+				       struct marco_workspace_pager_v1 *pager,
+				       int32_t x,
+				       int32_t y,
+				       int32_t width,
+				       int32_t height)
+{
+	WorkspaceManager *workspace_manager = data;
+
+	workspace_manager->viewport_x = x;
+	workspace_manager->viewport_y = y;
+	workspace_manager->viewport_width = width;
+	workspace_manager->viewport_height = height;
+	workspace_manager->has_viewport = width > 0 && height > 0;
+	workspace_manager_queue_workspace_draws (workspace_manager);
+}
+
+static void
+marco_workspace_pager_handle_workspace (void *data,
+					struct marco_workspace_pager_v1 *pager,
+					uint32_t index,
+					const char *name,
+					uint32_t active)
+{
+	WorkspaceManager *workspace_manager = data;
+	WaylandWorkspace *workspace;
+
+	workspace = g_list_nth_data (workspace_manager->workspaces, index);
+	if (!workspace)
+		return;
+
+	g_free (workspace->name);
+	workspace->name = g_strdup (name);
+	gtk_widget_set_tooltip_text (workspace->button, workspace->name);
+	if (active)
+		workspace->state |= EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE;
+	else
+		workspace->state &= ~EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE;
+	wayland_workspace_update_button (workspace);
+	workspace_manager_relayout (workspace_manager);
+}
+
+static void
+marco_workspace_pager_handle_window (void *data,
+				     struct marco_workspace_pager_v1 *pager,
+				     uint32_t id,
+				     const char *workspace_name,
+				     int32_t x,
+				     int32_t y,
+				     int32_t width,
+				     int32_t height,
+				     uint32_t minimized,
+				     uint32_t active,
+				     uint32_t omnipresent)
+{
+	WorkspaceManager *workspace_manager = data;
+	PagerWindow *window = workspace_manager_find_window (workspace_manager, id);
+
+	if (!window)
+	{
+		window = g_new0 (PagerWindow, 1);
+		window->id = id;
+		workspace_manager->windows = g_list_append (workspace_manager->windows, window);
+	}
+
+	g_free (window->workspace);
+	window->workspace = g_strdup (workspace_name);
+	window->x = x;
+	window->y = y;
+	window->width = width;
+	window->height = height;
+	window->minimized = minimized != 0;
+	window->active = active != 0;
+	window->omnipresent = omnipresent != 0;
+
+	workspace_manager_queue_workspace_draws (workspace_manager);
+}
+
+static void
+marco_workspace_pager_handle_window_closed (void *data,
+					    struct marco_workspace_pager_v1 *pager,
+					    uint32_t id)
+{
+	WorkspaceManager *workspace_manager = data;
+	PagerWindow *window = workspace_manager_find_window (workspace_manager, id);
+
+	if (!window)
+		return;
+
+	workspace_manager->windows = g_list_remove (workspace_manager->windows, window);
+	pager_window_free (window);
+	workspace_manager_queue_workspace_draws (workspace_manager);
+}
+
+static void
+marco_workspace_pager_handle_done (void *data,
+				   struct marco_workspace_pager_v1 *pager)
+{
+	WorkspaceManager *workspace_manager = data;
+
+	workspace_manager_relayout (workspace_manager);
+	workspace_manager_queue_workspace_draws (workspace_manager);
+}
+
+static const struct marco_workspace_pager_v1_listener marco_workspace_pager_listener = {
+	.viewport = marco_workspace_pager_handle_viewport,
+	.workspace = marco_workspace_pager_handle_workspace,
+	.window = marco_workspace_pager_handle_window,
+	.window_closed = marco_workspace_pager_handle_window_closed,
+	.done = marco_workspace_pager_handle_done,
 };
 
 static void
@@ -1258,6 +1581,14 @@ workspace_manager_disconnected_from_widget (WorkspaceManager *workspace_manager)
 	}
 
 	g_clear_pointer (&workspace_manager->workspaces, g_list_free);
+	g_list_free_full (workspace_manager->windows, (GDestroyNotify)pager_window_free);
+	workspace_manager->windows = NULL;
+
+	if (workspace_manager->pager)
+	{
+		marco_workspace_pager_v1_destroy (workspace_manager->pager);
+		workspace_manager->pager = NULL;
+	}
 
 	if (workspace_manager->manager)
 		ext_workspace_manager_v1_stop (workspace_manager->manager);
@@ -1274,7 +1605,13 @@ wayland_workspace_switcher_new ()
 		return gtk_label_new ("Shell does not support ext-workspace-v1");
 
 	workspace_manager = g_new0 (WorkspaceManager, 1);
-	workspace_manager->box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+	workspace_manager->orientation = GTK_ORIENTATION_HORIZONTAL;
+	workspace_manager->n_rows = 1;
+	workspace_manager->show_all = TRUE;
+	workspace_manager->display_names = FALSE;
+	workspace_manager->box = gtk_grid_new ();
+	gtk_grid_set_row_spacing (GTK_GRID (workspace_manager->box), 0);
+	gtk_grid_set_column_spacing (GTK_GRID (workspace_manager->box), 0);
 	workspace_manager->manager = wl_registry_bind (wl_registry_global,
 						      workspace_manager_global_id,
 						      &ext_workspace_manager_v1_interface,
@@ -1282,6 +1619,22 @@ wayland_workspace_switcher_new ()
 	ext_workspace_manager_v1_add_listener (workspace_manager->manager,
 					       &workspace_manager_listener,
 					       workspace_manager);
+
+	if (marco_workspace_pager_global_id)
+	{
+		struct marco_workspace_pager_manager_v1 *pager_manager;
+
+		pager_manager = wl_registry_bind (wl_registry_global,
+						  marco_workspace_pager_global_id,
+						  &marco_workspace_pager_manager_v1_interface,
+						  marco_workspace_pager_global_version);
+		workspace_manager->pager =
+			marco_workspace_pager_manager_v1_get_pager (pager_manager);
+		marco_workspace_pager_v1_add_listener (workspace_manager->pager,
+						       &marco_workspace_pager_listener,
+						       workspace_manager);
+		marco_workspace_pager_manager_v1_destroy (pager_manager);
+	}
 
 	g_object_add_weak_pointer (G_OBJECT (workspace_manager->box), (gpointer *)&workspace_manager->box);
 
@@ -1309,7 +1662,51 @@ wayland_workspace_switcher_set_orientation (GtkWidget* switcher_widget, GtkOrien
 	if (!workspace_manager)
 		return;
 
-	gtk_orientable_set_orientation (GTK_ORIENTABLE (workspace_manager->box), orient);
+	workspace_manager->orientation = orient;
+	workspace_manager_relayout (workspace_manager);
+}
+
+void
+wayland_workspace_switcher_set_n_rows (GtkWidget* switcher_widget, int n_rows)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+
+	if (!workspace_manager)
+		return;
+
+	workspace_manager->n_rows = MAX (n_rows, 1);
+	workspace_manager_relayout (workspace_manager);
+}
+
+void
+wayland_workspace_switcher_set_show_all (GtkWidget* switcher_widget, gboolean show_all)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+
+	if (!workspace_manager)
+		return;
+
+	workspace_manager->show_all = show_all;
+	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
+		wayland_workspace_update_button (iter->data);
+	workspace_manager_relayout (workspace_manager);
+}
+
+void
+wayland_workspace_switcher_set_display_names (GtkWidget* switcher_widget, gboolean display_names)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+
+	if (!workspace_manager)
+		return;
+
+	workspace_manager->display_names = display_names;
+	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
+	{
+		WaylandWorkspace *workspace = iter->data;
+		if (workspace->drawing_area)
+			gtk_widget_queue_draw (workspace->drawing_area);
+	}
 }
 
 void

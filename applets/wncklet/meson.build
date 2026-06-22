@@ -22,6 +22,7 @@ endif
 if have_wayland
   wayland_scanner = find_program('wayland-scanner')
   wayland_protos = [
+    'marco-workspace-pager-v1',
     'ext-workspace-v1',
     'wlr-foreign-toplevel-management-unstable-v1'
   ]

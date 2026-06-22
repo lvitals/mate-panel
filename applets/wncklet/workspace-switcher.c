@@ -286,6 +286,16 @@ static void pager_update(PagerData* pager)
 		pager_update_wnck(pager, WNCK_PAGER(pager->pager));
 	}
 #endif /* HAVE_X11 */
+
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+	{
+		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
+		wayland_workspace_switcher_set_n_rows (pager->pager, pager->n_rows);
+		wayland_workspace_switcher_set_show_all (pager->pager, pager->display_all);
+		wayland_workspace_switcher_set_display_names (pager->pager, pager->display_names);
+	}
+#endif /* HAVE_WAYLAND */
 }
 
 static void update_properties_for_wm(PagerData* pager)
@@ -828,6 +838,9 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 		pager->wm = PAGER_WM_MARCO;
 		pager->pager = wayland_workspace_switcher_new ();
 		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
+		wayland_workspace_switcher_set_n_rows (pager->pager, pager->n_rows);
+		wayland_workspace_switcher_set_show_all (pager->pager, pager->display_all);
+		wayland_workspace_switcher_set_display_names (pager->pager, pager->display_names);
 	}
 	else
 #endif /* HAVE_WAYLAND */
@@ -1075,11 +1088,6 @@ on_num_workspaces_value_changed (GtkSpinButton *button,
 		return;
 	}
 #endif /* HAVE_X11 */
-
-#ifdef HAVE_WAYLAND
-	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
-		wayland_workspace_switcher_set_workspace_count (pager->pager, workspace_count);
-#endif /* HAVE_WAYLAND */
 
 	if (pager->marco_general_settings)
 	{

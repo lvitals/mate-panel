@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="marco_workspace_pager_v1">
+  <interface name="marco_workspace_pager_manager_v1" version="1">
+    <request name="destroy" type="destructor"/>
+    <request name="get_pager">
+      <arg name="id" type="new_id" interface="marco_workspace_pager_v1"/>
+    </request>
+  </interface>
+
+  <interface name="marco_workspace_pager_v1" version="1">
+    <request name="destroy" type="destructor"/>
+    <event name="viewport">
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="workspace">
+      <arg name="index" type="uint"/>
+      <arg name="name" type="string"/>
+      <arg name="active" type="uint"/>
+    </event>
+    <event name="window">
+      <arg name="id" type="uint"/>
+      <arg name="workspace" type="string"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="minimized" type="uint"/>
+      <arg name="active" type="uint"/>
+      <arg name="omnipresent" type="uint"/>
+    </event>
+    <event name="window_closed">
+      <arg name="id" type="uint"/>
+    </event>
+    <event name="done"/>
+  </interface>
+</protocol>

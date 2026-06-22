@@ -42,6 +42,9 @@ GtkWidget* wayland_workspace_switcher_new (void);
 void wayland_tasklist_set_orientation (GtkWidget* tasklist_widget, GtkOrientation orient);
 void wayland_workspace_switcher_set_orientation (GtkWidget* switcher_widget, GtkOrientation orient);
 void wayland_workspace_switcher_set_workspace_count (GtkWidget* switcher_widget, int count);
+void wayland_workspace_switcher_set_n_rows (GtkWidget* switcher_widget, int n_rows);
+void wayland_workspace_switcher_set_show_all (GtkWidget* switcher_widget, gboolean show_all);
+void wayland_workspace_switcher_set_display_names (GtkWidget* switcher_widget, gboolean display_names);
 
 #ifdef __cplusplus
 }
