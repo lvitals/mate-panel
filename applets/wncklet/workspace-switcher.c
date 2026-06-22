@@ -665,7 +665,7 @@ static void num_rows_changed(GSettings* settings, gchar* key, PagerData* pager)
 
 	n_rows = CLAMP (g_settings_get_int (settings, key),
 	                1,
-	                max_rows);
+	                MAX (1, max_rows));
 
 	pager->n_rows = n_rows;
 	pager_update(pager);
