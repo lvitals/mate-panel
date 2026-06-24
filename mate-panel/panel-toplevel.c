@@ -4206,6 +4206,73 @@ panel_toplevel_update_applets_scale (gpointer user_data)
 	return G_SOURCE_REMOVE;
 }
 
+#ifdef HAVE_WAYLAND
+/* GObject data key used to store the pending remap timer source ID. */
+#define PANEL_WAYLAND_REMAP_SOURCE_KEY "panel-wayland-remap-source-id"
+
+/* Called after a monitor change to reassociate the layer shell surface with
+ * the new output. panel_multimonitor_reinit() runs at G_PRIORITY_DEFAULT_IDLE
+ * before this G_PRIORITY_DEFAULT timeout fires, so panel_multimonitor_monitors()
+ * reflects the current output list when we arrive here.
+ *
+ * Two failure modes this function guards against:
+ *
+ * 1. Stale monitor index: priv->monitor may still point to a disconnected
+ *    output. gdk_display_get_monitor() would return NULL, gtk_layer_set_monitor()
+ *    would be skipped, and the compositor falls back to positioning both panels
+ *    at the default (top) edge.
+ *
+ * 2. Corrupt orientation: if we called gtk_widget_show() while
+ *    panel_multimonitor_monitors() == 0, the fallback monitor height is 1 px.
+ *    The subsequent size_request would compute geometry.y == 0 for the bottom
+ *    panel, causing panel_toplevel_update_struts() to permanently override
+ *    priv->orientation to PANEL_ORIENTATION_TOP. */
+static gboolean
+panel_toplevel_wayland_remap (gpointer user_data)
+{
+	PanelToplevel *toplevel = PANEL_TOPLEVEL (user_data);
+	GdkDisplay    *display;
+	GdkMonitor    *monitor;
+
+	/* Clear the debounce ID so panel_toplevel_on_monitors_changed knows this
+	 * timer has fired and does not try to g_source_remove() a dead ID. */
+	g_object_set_data (G_OBJECT (toplevel), PANEL_WAYLAND_REMAP_SOURCE_KEY, NULL);
+
+	if (!PANEL_IS_TOPLEVEL (toplevel))
+		return G_SOURCE_REMOVE;
+
+	display = gtk_widget_get_display (GTK_WIDGET (toplevel));
+	if (!GDK_IS_WAYLAND_DISPLAY (display))
+		return G_SOURCE_REMOVE;
+
+	/* Sync priv->monitor to the current monitor list. If the configured output
+	 * is gone, this falls back to monitor 0; if it has returned, this restores
+	 * the configured index. */
+	panel_toplevel_update_monitor (toplevel);
+
+	monitor = gdk_display_get_monitor (display, panel_toplevel_get_monitor (toplevel));
+
+	/* No valid output is available yet (single-monitor disconnect). Bail out
+	 * without showing the panel. The monitors-changed signal will fire again
+	 * on reconnect and schedule a new call that finds a valid monitor. */
+	if (!monitor)
+		return G_SOURCE_REMOVE;
+
+	/* Set the correct output and edge anchors before gtk_widget_show() so that
+	 * gtk-layer-shell creates the new layer surface with the right configuration
+	 * instead of the compositor-default (top edge). */
+	wayland_panel_toplevel_update_placement (toplevel);
+
+	/* If the compositor closed the layer surface when the output was removed,
+	 * the window is unmapped. Re-show it so gtk-layer-shell creates a fresh
+	 * layer surface on the now-available output. */
+	if (!gtk_widget_get_mapped (GTK_WIDGET (toplevel)))
+		gtk_widget_show (GTK_WIDGET (toplevel));
+
+	return G_SOURCE_REMOVE;
+}
+#endif /* HAVE_WAYLAND */
+
 static void
 panel_toplevel_on_monitors_changed (GdkScreen *screen,
                                     gpointer   user_data)
@@ -4227,6 +4294,27 @@ panel_toplevel_on_monitors_changed (GdkScreen *screen,
 		 * 100ms gives GTK enough time to complete the resize at the new scale. */
 		g_timeout_add (100, panel_toplevel_update_applets_scale, toplevel);
 	}
+
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gtk_widget_get_display (GTK_WIDGET (toplevel)))) {
+		guint pending_id;
+
+		/* Debounce: cancel any previously scheduled remap and restart the
+		 * 200ms window. monitors-changed can fire multiple times during a
+		 * single hotplug event (compositor output add + resolution negotiate
+		 * + GDK internal sync). Without cancelling the old timer, an earlier
+		 * call could fire with intermediate/stale monitor data and leave the
+		 * panels at the wrong position before the final, correct call arrives. */
+		pending_id = GPOINTER_TO_UINT (
+			g_object_get_data (G_OBJECT (toplevel), PANEL_WAYLAND_REMAP_SOURCE_KEY));
+		if (pending_id > 0)
+			g_source_remove (pending_id);
+
+		pending_id = g_timeout_add (200, panel_toplevel_wayland_remap, toplevel);
+		g_object_set_data (G_OBJECT (toplevel), PANEL_WAYLAND_REMAP_SOURCE_KEY,
+		                   GUINT_TO_POINTER (pending_id));
+	}
+#endif /* HAVE_WAYLAND */
 }
 
 static void
