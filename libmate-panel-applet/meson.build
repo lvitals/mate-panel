@@ -57,6 +57,8 @@ pkg.generate(libmate_panel_applet,
 )
 
 if get_option('introspection')
+  find_program('g-ir-scanner', required: true)
+
   gnome.generate_gir(libmate_panel_applet,
     sources: ['mate-panel-applet.c', 'mate-panel-applet.h', 'mate-panel-applet-gsettings.c', 'mate-panel-applet-gsettings.h', applet_enums],
     namespace: 'MatePanelApplet',

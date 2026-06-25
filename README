@@ -20,11 +20,12 @@ To build MATE Panel from source, you will need the following tools and libraries
 
 ### Build Tools & Utilities
 * C Compiler (GCC or Clang)
-* Meson Build System (version `0.50.0` or higher)
+* Meson Build System (version `0.59.0` or higher)
 * Ninja build backend
 * Git
 * Gettext
 * GLib development tools (providing `glib-genmarshal`, `glib-compile-resources`, `glib-mkenums`)
+* GObject Introspection tools (providing `g-ir-scanner`, required by default)
 * Wayland Scanner (required for Wayland support)
 * Gtk-doc (optional, to build API documentation)
 
@@ -51,7 +52,7 @@ To build MATE Panel from source, you will need the following tools and libraries
 The project relies on external submodules (such as `libegg` under `mate-submodules`) which must be initialized and updated before configuring the build:
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init --remote --recursive
 ```
 
 ### 2. Configure the Build
@@ -74,13 +75,27 @@ You can toggle optional features and backends using `-D<option>=<value>`. Availa
 | `wayland` | feature | `auto` | Enable Wayland backend support (using GTK Layer Shell) |
 | `xrandr` | feature | `auto` | Enable XRandR support (requires X11 backend) |
 | `eds` | feature | `auto` | Enable Evolution Data Server calendar integration |
-| `introspection` | boolean | `true` | Build GObject Introspection data |
+| `introspection` | boolean | `true` | Build GObject Introspection data with `g-ir-scanner` |
 | `gtk-doc` | boolean | `false` | Build API developer documentation |
-| `in-process-applets` | array | `['none']` | Compile specified applets in-process (choices: `none`, `clock`, `fish`, `notification-area`, `wncklet`, `all`) |
+| `in-process-applets` | array | `['all']` | Compile specified applets in-process (choices: `none`, `clock`, `fish`, `notification-area`, `wncklet`, `all`) |
 
 *Example (disabling X11 and building only Wayland backend with in-process applets):*
 ```bash
 meson setup builddir -Dx11=disabled -Dwayland=enabled -Din-process-applets=clock,wncklet
+```
+
+#### GObject Introspection
+GObject Introspection is enabled by default because `libmate-panel-applet` installs introspection data for applet development. Make sure both the pkg-config file and scanner binary are installed:
+
+```bash
+pkg-config --exists gobject-introspection-1.0
+command -v g-ir-scanner
+```
+
+If Meson reports that `gobject-introspection-1.0` was found but `g-ir-scanner` is missing, install the distribution package that provides the scanner. For local builds where introspection data is not needed, it can be disabled explicitly:
+
+```bash
+meson setup builddir -Dintrospection=false
 ```
 
 ### 3. Compile the Code

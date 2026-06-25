@@ -25,6 +25,7 @@ appletsdir = join_paths(datadir, 'mate-panel', 'applets')
 # Global compiler flags
 add_project_arguments([
   '-DHAVE_CONFIG_H',
+  '-I' + meson.current_build_dir(),
   '-DDATADIR="@0@"'.format(datadir),
   '-DMATELOCALEDIR="@0@"'.format(join_paths(datadir, 'locale')),
   '-DPANELDATADIR="@0@"'.format(join_paths(datadir, 'mate-panel')),
@@ -217,7 +218,14 @@ glib_genmarshal = find_program('glib-genmarshal')
 glib_mkenums = find_program('glib-mkenums')
 
 subdir('po')
+libegg_deps = [
+  glib_dep,
+  gtk_dep,
+  ice_dep,
+  sm_dep,
+]
 subdir('mate-panel/mate-submodules/libegg')
+libegg = egg
 subdir('mate-panel/libpanel-util')
 subdir('mate-panel/libmate-panel-applet-private')
 subdir('libmate-panel-applet')

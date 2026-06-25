@@ -29,9 +29,9 @@
 #include <gio/gdesktopappinfo.h>
 
 #include "wayland-backend.h"
-#include "wayland-protocol/ext-workspace-v1-client.h"
+#include "ext-workspace-v1-client.h"
 #include "marco-workspace-pager-v1-client.h"
-#include "wayland-protocol/wlr-foreign-toplevel-management-unstable-v1-client.h"
+#include "wlr-foreign-toplevel-management-unstable-v1-client.h"
 
 /*shorter than wnck-tasklist due to common use of larger fonts*/
 #define TASKLIST_TEXT_MAX_WIDTH 16
