@@ -74,7 +74,11 @@ else
 
   # DBus service file
   wncklet_service_conf = configuration_data()
-  wncklet_service_conf.set('LOCATION', join_paths(libexecdir, 'wnck-applet'))
+  location = join_paths(libexecdir, 'wnck-applet')
+  if have_wayland
+    location = 'env GDK_BACKEND=x11 ' + location
+  endif
+  wncklet_service_conf.set('LOCATION', location)
   configure_file(
     input: 'org.mate.panel.applet.WnckletFactory.service.in',
     output: 'org.mate.panel.applet.WnckletFactory.service',

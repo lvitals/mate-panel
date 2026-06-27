@@ -45,6 +45,7 @@ void wayland_workspace_switcher_set_workspace_count (GtkWidget* switcher_widget,
 void wayland_workspace_switcher_set_n_rows (GtkWidget* switcher_widget, int n_rows);
 void wayland_workspace_switcher_set_show_all (GtkWidget* switcher_widget, gboolean show_all);
 void wayland_workspace_switcher_set_display_names (GtkWidget* switcher_widget, gboolean display_names);
+int wayland_workspace_switcher_get_workspace_count (GtkWidget* switcher_widget);
 
 #ifdef __cplusplus
 }

@@ -70,7 +70,11 @@ else
 
   # DBus service file
   notification_area_service_conf = configuration_data()
-  notification_area_service_conf.set('LOCATION', join_paths(libexecdir, 'notification-area-applet'))
+  location = join_paths(libexecdir, 'notification-area-applet')
+  if have_wayland
+    location = 'env GDK_BACKEND=x11 ' + location
+  endif
+  notification_area_service_conf.set('LOCATION', location)
   configure_file(
     input: 'org.mate.panel.applet.NotificationAreaAppletFactory.service.in',
     output: 'org.mate.panel.applet.NotificationAreaAppletFactory.service',

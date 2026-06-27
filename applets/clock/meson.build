@@ -82,7 +82,11 @@ else
 
   # DBus service file
   clock_service_conf = configuration_data()
-  clock_service_conf.set('LOCATION', join_paths(libexecdir, 'clock-applet'))
+  location = join_paths(libexecdir, 'clock-applet')
+  if have_wayland
+    location = 'env GDK_BACKEND=x11 ' + location
+  endif
+  clock_service_conf.set('LOCATION', location)
   configure_file(
     input: 'org.mate.panel.applet.ClockAppletFactory.service.in',
     output: 'org.mate.panel.applet.ClockAppletFactory.service',

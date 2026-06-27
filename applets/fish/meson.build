@@ -46,7 +46,11 @@ else
 
   # DBus service file
   fish_service_conf = configuration_data()
-  fish_service_conf.set('LOCATION', join_paths(libexecdir, 'fish-applet'))
+  location = join_paths(libexecdir, 'fish-applet')
+  if have_wayland
+    location = 'env GDK_BACKEND=x11 ' + location
+  endif
+  fish_service_conf.set('LOCATION', location)
   configure_file(
     input: 'org.mate.panel.applet.FishAppletFactory.service.in',
     output: 'org.mate.panel.applet.FishAppletFactory.service',

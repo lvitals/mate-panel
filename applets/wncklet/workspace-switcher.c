@@ -978,6 +978,10 @@ get_workspace_count (PagerData *pager)
 	if (pager->screen)
 		return wnck_screen_get_workspace_count (pager->screen);
 #endif /* HAVE_X11 */
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()) && pager->pager)
+		return wayland_workspace_switcher_get_workspace_count (pager->pager);
+#endif
 
 	if (pager->marco_general_settings)
 		return g_settings_get_int (pager->marco_general_settings, NUM_WORKSPACES);
@@ -1088,6 +1092,13 @@ on_num_workspaces_value_changed (GtkSpinButton *button,
 		return;
 	}
 #endif /* HAVE_X11 */
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()) && pager->pager)
+	{
+		wayland_workspace_switcher_set_workspace_count (pager->pager, workspace_count);
+		return;
+	}
+#endif
 
 	if (pager->marco_general_settings)
 	{
@@ -1253,6 +1264,20 @@ setup_sensitivity(PagerData* pager, GtkBuilder* builder, const char* wid1, const
 	}
 }
 
+#ifdef HAVE_WAYLAND
+static void wayland_workspaces_changed(GtkContainer *container, GtkWidget *widget, PagerData *pager)
+{
+	update_workspaces_model(pager);
+	if (pager->properties_dialog && pager->num_workspaces_spin)
+	{
+		int count = wayland_workspace_switcher_get_workspace_count (pager->pager);
+		g_signal_handlers_block_by_func (pager->num_workspaces_spin, on_num_workspaces_value_changed, pager);
+		gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->num_workspaces_spin), count);
+		g_signal_handlers_unblock_by_func (pager->num_workspaces_spin, on_num_workspaces_value_changed, pager);
+	}
+}
+#endif
+
 static void setup_dialog(GtkBuilder* builder, PagerData* pager)
 {
 	gboolean value;
@@ -1285,6 +1310,13 @@ static void setup_dialog(GtkBuilder* builder, PagerData* pager)
 	setup_sensitivity(pager, builder, "num_rows_spin", NULL, NULL, pager->settings, "num-rows" /* key */);
 
 	pager->num_workspaces_spin = WID("num_workspaces_spin");
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+	{
+		gtk_widget_set_sensitive (pager->num_workspaces_spin, TRUE);
+	}
+	else
+#endif
 	setup_sensitivity(pager, builder, "num_workspaces_spin", NULL, NULL, marco_general_settings, NUM_WORKSPACES /* key */);
 
 	pager->workspaces_tree = WID("workspaces_tree_view");
@@ -1364,6 +1396,17 @@ static void setup_dialog(GtkBuilder* builder, PagerData* pager)
 		}
 	}
 #endif /* HAVE_X11 */
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+	{
+		gtk_spin_button_set_value(GTK_SPIN_BUTTON(pager->num_workspaces_spin), wayland_workspace_switcher_get_workspace_count(pager->pager));
+		if (pager->pager)
+		{
+			wncklet_connect_while_alive(pager->pager, "add", G_CALLBACK(wayland_workspaces_changed), pager, pager->properties_dialog);
+			wncklet_connect_while_alive(pager->pager, "remove", G_CALLBACK(wayland_workspaces_changed), pager, pager->properties_dialog);
+		}
+	}
+#endif
 
 	g_signal_connect (pager->num_workspaces_spin, "value-changed",
 	                  G_CALLBACK (on_num_workspaces_value_changed),

@@ -106,6 +106,8 @@ main (int argc, char **argv)
 	g_option_context_add_main_entries (context, options, GETTEXT_PACKAGE);
 
 	#if defined(HAVE_X11) && defined(HAVE_WAYLAND)
+		/* Prefer wayland for native layer-shell panels; fall back to x11
+		 * (XWayland) if no Wayland compositor is available. */
 		gdk_set_allowed_backends ("wayland,x11");
 	#elif defined(HAVE_WAYLAND)
 		gdk_set_allowed_backends ("wayland");

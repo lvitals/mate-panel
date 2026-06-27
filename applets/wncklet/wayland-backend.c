@@ -39,8 +39,6 @@
 /*In the future this could be changable from the panel-prefs dialog*/
 static const int max_button_width = 180;
 static const int icon_size = 16;
-static const int workspace_thumb_width = 48;
-static const int workspace_thumb_height = 24;
 static const int workspace_thumb_min_size = 6;
 int full_button_width;
 
@@ -110,6 +108,8 @@ typedef struct
 	int viewport_y;
 	int viewport_width;
 	int viewport_height;
+	int box_allocated_width;
+	int box_allocated_height;
 } WorkspaceManager;
 
 typedef struct
@@ -970,18 +970,39 @@ workspace_manager_update_item_sizes (WorkspaceManager *workspace_manager)
 	int n_rows;
 	int item_width;
 	int item_height;
+	double aspect = 1.5;
 
 	if (!workspace_manager)
 		return;
 
+	if (workspace_manager->has_viewport && workspace_manager->viewport_height > 0)
+	{
+		aspect = (double)workspace_manager->viewport_width / workspace_manager->viewport_height;
+	}
+
 	n_rows = MAX (workspace_manager->n_rows, 1);
-	item_width = workspace_thumb_width;
-	item_height = workspace_thumb_height;
 
 	if (workspace_manager->orientation == GTK_ORIENTATION_HORIZONTAL)
-		item_height = MAX (workspace_thumb_min_size, workspace_thumb_height / n_rows);
+	{
+		int allocated_height = workspace_manager->box_allocated_height;
+		if (allocated_height <= 1)
+			allocated_height = 36;
+
+		item_height = (allocated_height / n_rows) - 2;
+		item_height = MAX (workspace_thumb_min_size, item_height);
+		item_width = (int)(item_height * aspect);
+	}
 	else
-		item_width = MAX (workspace_thumb_min_size, workspace_thumb_width / n_rows);
+	{
+		int allocated_width = workspace_manager->box_allocated_width;
+		if (allocated_width <= 1)
+			allocated_width = 36;
+
+		int n_cols = n_rows;
+		item_width = (allocated_width / n_cols) - 2;
+		item_width = MAX (workspace_thumb_min_size, item_width);
+		item_height = (int)(item_width / aspect);
+	}
 
 	for (GList *iter = workspace_manager->workspaces; iter; iter = iter->next)
 	{
@@ -993,6 +1014,21 @@ workspace_manager_update_item_sizes (WorkspaceManager *workspace_manager)
 		if (workspace->button)
 			gtk_widget_set_size_request (workspace->button,
 						     item_width, item_height);
+	}
+}
+
+static void
+workspace_manager_size_allocated (GtkWidget *widget,
+				  GdkRectangle *allocation,
+				  gpointer data)
+{
+	WorkspaceManager *workspace_manager = data;
+	if (workspace_manager->box_allocated_width != allocation->width ||
+	    workspace_manager->box_allocated_height != allocation->height)
+	{
+		workspace_manager->box_allocated_width = allocation->width;
+		workspace_manager->box_allocated_height = allocation->height;
+		workspace_manager_update_item_sizes (workspace_manager);
 	}
 }
 
@@ -1636,6 +1672,12 @@ wayland_workspace_switcher_new ()
 		marco_workspace_pager_manager_v1_destroy (pager_manager);
 	}
 
+	workspace_manager->box_allocated_width = 0;
+	workspace_manager->box_allocated_height = 0;
+	g_signal_connect (workspace_manager->box, "size-allocate",
+			  G_CALLBACK (workspace_manager_size_allocated),
+			  workspace_manager);
+
 	g_object_add_weak_pointer (G_OBJECT (workspace_manager->box), (gpointer *)&workspace_manager->box);
 
 	g_object_set_data_full (G_OBJECT (workspace_manager->box),
@@ -1763,4 +1805,13 @@ wayland_tasklist_set_orientation (GtkWidget* tasklist_widget, GtkOrientation ori
 
 	gtk_orientable_set_orientation (GTK_ORIENTABLE (tasklist->list), orient);
 	gtk_orientable_set_orientation (GTK_ORIENTABLE (tasklist->outer_box), orient);
+}
+
+int
+wayland_workspace_switcher_get_workspace_count (GtkWidget* switcher_widget)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+	if (!workspace_manager)
+		return 0;
+	return g_list_length (workspace_manager->workspaces);
 }

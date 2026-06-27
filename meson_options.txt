@@ -4,4 +4,3 @@ option('xrandr', type: 'feature', value: 'auto', description: 'Enable XRandR sup
 option('eds', type: 'feature', value: 'auto', description: 'Enable Evolution Data Server calendar integration')
 option('introspection', type: 'boolean', value: true, description: 'Build GObject Introspection data')
 option('gtk-doc', type: 'boolean', value: false, description: 'Build developer documentation')
-option('in-process-applets', type: 'array', choices: ['none', 'clock', 'fish', 'notification-area', 'wncklet', 'all'], value: ['all'], description: 'Applets to compile in-process')

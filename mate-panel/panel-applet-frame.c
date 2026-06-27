@@ -32,6 +32,12 @@
 
 #include <gio/gio.h>
 #include <gdk/gdk.h>
+#ifdef HAVE_X11
+#include <gdk/gdkx.h>
+#endif
+#ifdef HAVE_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
 
 #include <libpanel-util/panel-gtk.h>
 
@@ -66,6 +72,30 @@ static void mate_panel_applet_frame_load            (const gchar *iid,
 						int          position,
 						gboolean     exactpos,
 						const char  *id);
+
+static gboolean
+mate_panel_applet_frame_applet_supported (const gchar *iid)
+{
+	MatePanelAppletInfo *info;
+	GdkDisplay          *display;
+
+	info = mate_panel_applets_manager_get_applet_info (iid);
+	if (info == NULL)
+		return TRUE;
+
+	display = gdk_display_get_default ();
+
+#ifdef HAVE_X11
+	if (GDK_IS_X11_DISPLAY (display))
+		return mate_panel_applet_info_get_x11_supported (info);
+#endif
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (display))
+		return mate_panel_applet_info_get_wayland_supported (info);
+#endif
+
+	return FALSE;
+}
 
 struct _MatePanelAppletFrameActivating {
 	gboolean     locked;
@@ -1015,6 +1045,13 @@ mate_panel_applet_frame_load (const gchar *iid,
 	}
 
 	if (panel_lockdown_is_applet_disabled (iid)) {
+		mate_panel_applet_stop_loading (id);
+		return;
+	}
+
+	if (!mate_panel_applet_frame_applet_supported (iid)) {
+		g_debug ("Skipping applet %s because it does not support the current display backend",
+			 iid);
 		mate_panel_applet_stop_loading (id);
 		return;
 	}

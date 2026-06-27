@@ -96,8 +96,9 @@ mate_panel_applet_factory_info_free (MatePanelAppletFactoryInfo *info)
 
 static MatePanelAppletInfo *
 _mate_panel_applets_manager_get_applet_info (GKeyFile    *applet_file,
-					const gchar *group,
-					const gchar *factory_id)
+						const gchar *group,
+						const gchar *factory_id,
+						gboolean     in_process)
 {
 	MatePanelAppletInfo  *info;
 	char             *iid;
@@ -122,9 +123,9 @@ _mate_panel_applets_manager_get_applet_info (GKeyFile    *applet_file,
 	supported_platforms = g_key_file_get_string_list (applet_file, group,
 							  "Platforms", NULL, NULL);
 	if (supported_platforms == NULL) {
-		/* If supported platforms are not specified, assume all are supported */
+		/* External applets use GtkPlug/GtkSocket and therefore require X11. */
 		x11_supported = TRUE;
-		wayland_supported = TRUE;
+		wayland_supported = in_process;
 	} else {
 		int len, i;
 
@@ -225,7 +226,8 @@ mate_panel_applets_manager_get_applet_factory_info_from_file (const gchar *filen
 			continue;
 
 		ainfo = _mate_panel_applets_manager_get_applet_info (applet_file,
-								groups[i], info->id);
+									groups[i], info->id,
+									info->in_process);
 		if (mate_panel_applet_info_get_old_ids (ainfo) != NULL)
 			info->has_old_ids = TRUE;
 
@@ -460,14 +462,21 @@ mate_panel_applets_manager_dbus_factory_activate (MatePanelAppletsManager *manag
 #ifdef HAVE_X11
 	if (GDK_IS_X11_DISPLAY (gdk_display_get_default ()) &&
 		!mate_panel_applet_info_get_x11_supported (applet_info)) {
-		g_warning ("Failed to load %p, because it does not support X11", iid);
+		g_warning ("Failed to load %s, because it does not support X11", iid);
 		return FALSE;
 	}
 #endif
 #ifdef HAVE_WAYLAND
 	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()) &&
 		!mate_panel_applet_info_get_wayland_supported (applet_info)) {
-		g_warning ("Failed to load %p, because it does not support Wayland", iid);
+		g_warning ("Failed to load %s, because it does not support Wayland", iid);
+		return FALSE;
+	}
+
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()) &&
+	    !info->in_process) {
+		g_warning ("Failed to load %s: out-of-process applets require X11 embedding",
+			   iid);
 		return FALSE;
 	}
 #endif

@@ -153,28 +153,10 @@ if have_eds
 endif
 
 # Applets in-process logic
-in_proc_opts = get_option('in-process-applets')
-build_all_inprocess = in_proc_opts.contains('all')
-build_none_inprocess = in_proc_opts.contains('none')
-
-clock_inprocess = false
-fish_inprocess = false
-notification_area_inprocess = false
-wncklet_inprocess = false
-
-if not build_none_inprocess
-  if build_all_inprocess
-    clock_inprocess = true
-    fish_inprocess = true
-    notification_area_inprocess = true
-    wncklet_inprocess = true
-  else
-    clock_inprocess = in_proc_opts.contains('clock')
-    fish_inprocess = in_proc_opts.contains('fish')
-    notification_area_inprocess = in_proc_opts.contains('notification-area')
-    wncklet_inprocess = in_proc_opts.contains('wncklet')
-  endif
-endif
+clock_inprocess = true
+fish_inprocess = true
+notification_area_inprocess = true
+wncklet_inprocess = true
 
 if clock_inprocess
   conf.set('CLOCK_INPROCESS', 1)

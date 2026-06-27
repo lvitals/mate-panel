@@ -83,6 +83,14 @@ static const AppletPropertyInfo applet_properties [] = {
 
 #ifdef HAVE_X11
 static gboolean mate_panel_applet_container_plug_removed (MatePanelAppletContainer *container);
+
+static void
+mate_panel_applet_container_socket_realize (GtkWidget                *socket,
+					    MatePanelAppletContainer *container)
+{
+	if (container->priv->xid > 0)
+		gtk_socket_add_id (GTK_SOCKET (socket), container->priv->xid);
+}
 #endif
 
 G_DEFINE_TYPE_WITH_PRIVATE (MatePanelAppletContainer, mate_panel_applet_container, GTK_TYPE_EVENT_BOX);
@@ -102,8 +110,9 @@ static void mate_panel_applet_container_init(MatePanelAppletContainer* container
 							      (GDestroyNotify) g_object_unref);
 }
 
-static void
-panel_applet_container_setup (MatePanelAppletContainer *container)
+static gboolean
+panel_applet_container_setup (MatePanelAppletContainer  *container,
+			      GError                   **error)
 {
 	if (container->priv->out_of_process) {
 #ifdef HAVE_X11
@@ -114,23 +123,41 @@ panel_applet_container_setup (MatePanelAppletContainer *container)
 						"plug-removed",
 						G_CALLBACK (mate_panel_applet_container_plug_removed),
 						container);
+			g_signal_connect (container->priv->socket,
+					  "realize",
+					  G_CALLBACK (mate_panel_applet_container_socket_realize),
+					  container);
 
 			gtk_container_add (GTK_CONTAINER (container), container->priv->socket);
 			gtk_widget_show (container->priv->socket);
 		} else
 #endif
 		{ /* Not using X11 */
-			g_warning("%s requested out-of-process container, which is only supported on X11",
-				  container->priv->iid);
+			g_set_error (error,
+				     MATE_PANEL_APPLET_CONTAINER_ERROR,
+				     MATE_PANEL_APPLET_CONTAINER_UNSUPPORTED_BACKEND,
+				     "%s requires X11 embedding and cannot run in a native Wayland panel",
+				     container->priv->iid);
+			return FALSE;
 		}
 	} else {
 		GtkWidget *applet;
 
 		applet = mate_panel_applets_manager_get_applet_widget (container->priv->iid, container->priv->uid);
+		if (applet == NULL) {
+			g_set_error (error,
+				     MATE_PANEL_APPLET_CONTAINER_ERROR,
+				     MATE_PANEL_APPLET_CONTAINER_INVALID_APPLET,
+				     "Failed to create in-process applet %s",
+				     container->priv->iid);
+			return FALSE;
+		}
 
 		gtk_container_add (GTK_CONTAINER (container), applet);
 	}
- }
+
+	return TRUE;
+}
 
 static void
 mate_panel_applet_container_cancel_pending_operations (MatePanelAppletContainer *container)
@@ -371,19 +398,15 @@ on_proxy_appeared (GObject      *source_object,
 					    (GDBusSignalCallback) on_property_changed,
 					    container, NULL);
 
+	if (!panel_applet_container_setup (container, &error)) {
+		g_task_return_error (task, error);
+		g_object_unref (task);
+		g_object_unref (container);
+		return;
+	}
+
 	g_task_return_boolean (task,TRUE);
 	g_object_unref (task);
-
-	panel_applet_container_setup (container);
-
-#ifdef HAVE_X11
-	/* socket is only created on X11 display; xid may still be > 0 when applet
-	 * runs via XWayland (GDK_BACKEND=x11) while panel is on Wayland */
-	if (container->priv->xid > 0 && container->priv->socket != NULL) {
-		gtk_socket_add_id (GTK_SOCKET (container->priv->socket),
-				   container->priv->xid);
-	}
-#endif
 
 	/* g_async_result_get_source_object returns new ref */
 	g_object_unref (container);
