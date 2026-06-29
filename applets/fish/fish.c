@@ -869,6 +869,7 @@ static void display_fortune_dialog(FishApplet* fish)
 		fish->fortune_view = gtk_text_view_new ();
 		gtk_text_view_set_editable (GTK_TEXT_VIEW (fish->fortune_view), FALSE);
 		gtk_text_view_set_cursor_visible (GTK_TEXT_VIEW (fish->fortune_view), FALSE);
+		gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (fish->fortune_view), GTK_WRAP_WORD_CHAR);
 		gtk_text_view_set_left_margin (GTK_TEXT_VIEW (fish->fortune_view), 10);
 		gtk_text_view_set_right_margin (GTK_TEXT_VIEW (fish->fortune_view), 10);
 		fish->fortune_buffer =
@@ -880,7 +881,7 @@ static void display_fortune_dialog(FishApplet* fish)
 
 		scrolled = gtk_scrolled_window_new (NULL, NULL);
 		gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
-						GTK_POLICY_AUTOMATIC,
+						GTK_POLICY_NEVER,
 						GTK_POLICY_AUTOMATIC);
 		gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled),
 						     GTK_SHADOW_IN);
@@ -1420,8 +1421,9 @@ static void update_pixmap(FishApplet* fish)
 
 	cr = cairo_create (fish->surface);
 
-	cairo_set_source_rgb (cr, 1, 1, 1);
+	cairo_set_operator (cr, CAIRO_OPERATOR_CLEAR);
 	cairo_paint (cr);
+	cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
 
 	gdk_cairo_set_source_pixbuf (cr, fish->pixbuf, 0, 0);
 	pattern = cairo_get_source (cr);
@@ -1644,6 +1646,17 @@ static void setup_fish_widget(FishApplet* fish)
 
 	fish->drawing_area = gtk_drawing_area_new ();
 	gtk_container_add (GTK_CONTAINER (fish->frame), fish->drawing_area);
+
+	GtkCssProvider *provider = gtk_css_provider_new ();
+	gtk_css_provider_load_from_data (provider,
+		"* { background-color: transparent; background-image: none; }", -1, NULL);
+	gtk_style_context_add_provider (gtk_widget_get_style_context (widget),
+		GTK_STYLE_PROVIDER (provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	gtk_style_context_add_provider (gtk_widget_get_style_context (fish->frame),
+		GTK_STYLE_PROVIDER (provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	gtk_style_context_add_provider (gtk_widget_get_style_context (fish->drawing_area),
+		GTK_STYLE_PROVIDER (provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	g_object_unref (provider);
 
 	g_signal_connect (fish->drawing_area, "realize",
 			  G_CALLBACK (fish_applet_realize), fish);
