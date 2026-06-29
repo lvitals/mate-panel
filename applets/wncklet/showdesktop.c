@@ -425,6 +425,11 @@ static void theme_changed_callback(GtkIconTheme* icon_theme, ShowDesktopData* sd
 	update_icon (sdd);
 }
 
+static void show_desktop_applet_style_updated (GtkWidget *widget, ShowDesktopData *sdd)
+{
+	update_icon (sdd);
+}
+
 gboolean show_desktop_applet_fill(MatePanelApplet* applet)
 {
 	ShowDesktopData* sdd;
@@ -464,6 +469,10 @@ gboolean show_desktop_applet_fill(MatePanelApplet* applet)
 
 	g_signal_connect (sdd->applet, "realize",
 	                  G_CALLBACK (show_desktop_applet_realized),
+	                  sdd);
+
+	g_signal_connect (sdd->applet, "style-updated",
+	                  G_CALLBACK (show_desktop_applet_style_updated),
 	                  sdd);
 
 	sdd->button = gtk_toggle_button_new ();

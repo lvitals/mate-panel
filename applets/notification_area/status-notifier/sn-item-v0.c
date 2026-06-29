@@ -1404,6 +1404,14 @@ install_properties (GObjectClass *object_class)
 }
 
 static void
+sn_item_v0_style_updated (GtkWidget *widget)
+{
+  GTK_WIDGET_CLASS (sn_item_v0_parent_class)->style_updated (widget);
+
+  queue_update (SN_ITEM_V0 (widget));
+}
+
+static void
 sn_item_v0_class_init (SnItemV0Class *v0_class)
 {
   GObjectClass *object_class;
@@ -1430,6 +1438,7 @@ sn_item_v0_class_init (SnItemV0Class *v0_class)
   item_class->scroll = sn_item_v0_scroll;
 
   widget_class->size_allocate = sn_item_v0_size_allocate;
+  widget_class->style_updated = sn_item_v0_style_updated;
 
   gtk_widget_class_set_css_name (widget_class, "sn-item");
 

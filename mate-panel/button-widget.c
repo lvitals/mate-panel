@@ -689,6 +689,14 @@ button_widget_init (ButtonWidget *button)
 }
 
 static void
+button_widget_style_updated (GtkWidget *widget)
+{
+    GTK_WIDGET_CLASS (button_widget_parent_class)->style_updated (widget);
+
+    button_widget_reload_surface (BUTTON_WIDGET (widget));
+}
+
+static void
 button_widget_class_init (ButtonWidgetClass *klass)
 {
     GObjectClass *gobject_class   = (GObjectClass   *) klass;
@@ -701,6 +709,7 @@ button_widget_class_init (ButtonWidgetClass *klass)
 
     widget_class->realize              = button_widget_realize;
     widget_class->unrealize            = button_widget_unrealize;
+    widget_class->style_updated        = button_widget_style_updated;
     widget_class->size_allocate        = button_widget_size_allocate;
     widget_class->get_preferred_width  = button_widget_get_preferred_width;
     widget_class->get_preferred_height = button_widget_get_preferred_height;

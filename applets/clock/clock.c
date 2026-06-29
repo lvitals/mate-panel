@@ -2277,6 +2277,14 @@ weather_icon_updated_cb (MatePanelApplet *applet,
 }
 
 static void
+clock_applet_style_updated (GtkWidget *widget,
+                            gpointer   data)
+{
+        ClockData *cd = data;
+        weather_icon_updated_cb (MATE_PANEL_APPLET (widget), 0, cd);
+}
+
+static void
 location_weather_updated_cb (ClockLocation *location,
                              WeatherInfo   *info,
                              gpointer       data)
@@ -2856,6 +2864,11 @@ fill_clock_applet (MatePanelApplet *applet)
         g_signal_connect (cd->applet,
                           "change-size",
                           G_CALLBACK (weather_icon_updated_cb),
+                          cd);
+
+        g_signal_connect (cd->applet,
+                          "style-updated",
+                          G_CALLBACK (clock_applet_style_updated),
                           cd);
 
         /* If ConsoleKit or systemd-logind is available, set up to update
