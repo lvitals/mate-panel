@@ -419,6 +419,9 @@ panel_background_update_has_alpha (PanelBackground *background)
 		 background->loaded_image)
 		has_alpha = gdk_pixbuf_get_has_alpha (background->loaded_image);
 
+	else if (background->type == PANEL_BACK_NONE)
+		has_alpha = (background->default_color.alpha < 1.);
+
 	background->has_alpha = (has_alpha != FALSE);
 }
 
@@ -614,6 +617,9 @@ panel_background_set_default_style (PanelBackground *background,
 		cairo_pattern_destroy (background->default_pattern);
 
 	background->default_pattern = pattern;
+
+	panel_background_update_has_alpha (background);
+
 	if (background->type == PANEL_BACK_NONE)
 		panel_background_prepare (background);
 }
