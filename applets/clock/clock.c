@@ -3156,6 +3156,88 @@ location_name_changed (GObject *object, ClockData *cd)
     location_update_ok_sensitivity (cd);
 }
 
+static gchar *
+location_search_normalize (const gchar *text)
+{
+        gchar *casefolded;
+        gchar *normalized;
+        GString *result;
+        const gchar *p;
+
+        casefolded = g_utf8_casefold (text, -1);
+        normalized = g_utf8_normalize (casefolded, -1, G_NORMALIZE_ALL);
+        g_free (casefolded);
+
+        result = g_string_sized_new (strlen (normalized));
+        for (p = normalized; *p; p = g_utf8_next_char (p)) {
+                gunichar character = g_utf8_get_char (p);
+                GUnicodeType type = g_unichar_type (character);
+
+                if (type != G_UNICODE_NON_SPACING_MARK &&
+                    type != G_UNICODE_SPACING_MARK &&
+                    type != G_UNICODE_ENCLOSING_MARK)
+                        g_string_append_unichar (result, character);
+        }
+
+        g_free (normalized);
+        return g_string_free (result, FALSE);
+}
+
+#define CLOCK_LOCATION_ENTRY_COL_DISPLAY_NAME 0
+
+static gboolean
+location_search_match (GtkEntryCompletion *completion,
+                       const gchar        *key,
+                       GtkTreeIter        *iter,
+                       gpointer            user_data)
+{
+        GtkTreeModel *model;
+        gchar *display_name;
+        gchar *normalized_name;
+        gchar *normalized_key;
+        gchar **words;
+        const gchar *cursor;
+        gboolean match = TRUE;
+        gint i;
+
+        model = gtk_entry_completion_get_model (completion);
+        gtk_tree_model_get (model, iter, CLOCK_LOCATION_ENTRY_COL_DISPLAY_NAME, &display_name, -1);
+        if (!display_name)
+                return FALSE;
+
+        normalized_name = location_search_normalize (display_name);
+        normalized_key = location_search_normalize (key);
+        words = g_strsplit_set (normalized_key, " \t\r\n", -1);
+        cursor = normalized_name;
+
+        for (i = 0; words[i] && match; i++) {
+                const gchar *word_match;
+
+                if (!words[i][0])
+                        continue;
+
+                word_match = cursor;
+                while ((word_match = strstr (word_match, words[i]))) {
+                        if (word_match == normalized_name ||
+                            !g_unichar_isalnum (g_utf8_get_char (g_utf8_prev_char (word_match))))
+                                break;
+                        word_match = g_utf8_next_char (word_match);
+                }
+
+                if (word_match)
+                        cursor = word_match + strlen (words[i]);
+                else
+                        match = FALSE;
+        }
+
+        g_strfreev (words);
+        g_free (normalized_key);
+        g_free (normalized_name);
+        g_free (display_name);
+
+        return match;
+}
+
 static void
 location_timezone_changed (GObject *object, GParamSpec *param, ClockData *cd)
 {
@@ -3635,6 +3717,15 @@ ensure_prefs_window_is_created (ClockData *cd)
         gtk_container_add (GTK_CONTAINER (location_box), GTK_WIDGET (cd->location_entry));
         gtk_label_set_mnemonic_widget (GTK_LABEL (location_name_label),
                                        GTK_WIDGET (cd->location_entry));
+        {
+                GtkEntryCompletion *completion;
+
+                completion = gtk_entry_get_completion (GTK_ENTRY (cd->location_entry));
+                if (completion != NULL)
+                        gtk_entry_completion_set_match_func (completion,
+                                                             location_search_match,
+                                                             NULL, NULL);
+        }
 
         g_signal_connect (cd->location_entry, "notify::location",
                           G_CALLBACK (location_changed), cd);
