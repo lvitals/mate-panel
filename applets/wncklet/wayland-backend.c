@@ -1631,7 +1631,7 @@ workspace_manager_disconnected_from_widget (WorkspaceManager *workspace_manager)
 }
 
 GtkWidget*
-wayland_workspace_switcher_new ()
+wayland_workspace_switcher_new (int size)
 {
 	WorkspaceManager *workspace_manager;
 
@@ -1673,7 +1673,7 @@ wayland_workspace_switcher_new ()
 	}
 
 	workspace_manager->box_allocated_width = 0;
-	workspace_manager->box_allocated_height = 0;
+	workspace_manager->box_allocated_height = size;
 	g_signal_connect (workspace_manager->box, "size-allocate",
 			  G_CALLBACK (workspace_manager_size_allocated),
 			  workspace_manager);
@@ -1694,6 +1694,28 @@ static WorkspaceManager *
 workspace_switcher_widget_get_manager (GtkWidget *switcher_widget)
 {
 	return g_object_get_data (G_OBJECT (switcher_widget), workspace_manager_key);
+}
+
+void
+wayland_workspace_switcher_set_size (GtkWidget* switcher_widget, int size)
+{
+	WorkspaceManager *workspace_manager = workspace_switcher_widget_get_manager (switcher_widget);
+
+	if (!workspace_manager)
+		return;
+
+	if (workspace_manager->orientation == GTK_ORIENTATION_HORIZONTAL)
+	{
+		workspace_manager->box_allocated_height = size;
+		workspace_manager->box_allocated_width = 0;
+	}
+	else
+	{
+		workspace_manager->box_allocated_width = size;
+		workspace_manager->box_allocated_height = 0;
+	}
+
+	workspace_manager_update_item_sizes (workspace_manager);
 }
 
 void

@@ -889,6 +889,19 @@ edit_locations_cb (CalendarWindow *calwin, gpointer data)
         display_properties_dialog (cd, TRUE);
 }
 
+static gboolean
+calendar_window_draw (GtkWidget *widget,
+                      cairo_t   *cr,
+                      gpointer   user_data)
+{
+        cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba (cr, 0.0, 0.0, 0.0, 0.0);
+        cairo_paint (cr);
+        cairo_set_operator (cr, CAIRO_OPERATOR_OVER);
+
+        return FALSE;
+}
+
 static GtkWidget *
 create_calendar (ClockData *cd)
 {
@@ -932,10 +945,15 @@ create_calendar (ClockData *cd)
                           G_CALLBACK (delete_event), cd->panel_button);
         g_signal_connect (window, "key-press-event",
                           G_CALLBACK (close_on_escape), cd->panel_button);
+        g_signal_connect (window, "draw",
+                          G_CALLBACK (calendar_window_draw), NULL);
 
         /*Name this window so the default theme can be overridden in panel theme,
         otherwise default GtkWindow bg will be pulled in and override transparency */
         gtk_widget_set_name(window, "MatePanelPopupWindow");
+
+        GtkStyleContext *context = gtk_widget_get_style_context (window);
+        gtk_style_context_add_class (context, "menu");
 
         /* Make transparency possible in the theme */
         GdkScreen *screen = gtk_widget_get_screen(GTK_WIDGET(window));
@@ -2151,6 +2169,8 @@ show_date_changed (GSettings    *settings,
 static void
 update_panel_weather (ClockData *cd)
 {
+        gboolean show = FALSE;
+
         if (cd->show_weather)
                 gtk_widget_show (cd->panel_weather_icon);
         else
@@ -2161,8 +2181,20 @@ update_panel_weather (ClockData *cd)
         else
                 gtk_widget_hide (cd->panel_temperature_label);
 
-        if ((cd->show_weather || cd->show_temperature) &&
-            g_slist_length (cd->locations) > 0)
+        if (cd->show_weather || cd->show_temperature) {
+                for (GSList *l = cd->locations; l; l = l->next) {
+                        ClockLocation *loc = l->data;
+                        if (clock_location_is_current (loc)) {
+                                const gchar *code = clock_location_get_weather_code (loc);
+                                if (code && code[0] != '\0') {
+                                        show = TRUE;
+                                        break;
+                                }
+                        }
+                }
+        }
+
+        if (show)
                 gtk_widget_show (cd->weather_obox);
         else
                 gtk_widget_hide (cd->weather_obox);
@@ -2255,15 +2287,21 @@ location_weather_updated_cb (ClockLocation *location,
         cairo_surface_t *surface;
         gint icon_size, icon_scale;
 
-        if (!info || !weather_info_is_valid (info))
+        if (!info || !weather_info_is_valid (info)) {
+                update_panel_weather (cd);
                 return;
+        }
 
-        if (!clock_location_is_current (location))
+        if (!clock_location_is_current (location)) {
+                update_panel_weather (cd);
                 return;
+        }
 
         cd->weather_icon_name = weather_info_get_icon_name (info);
-        if (cd->weather_icon_name == NULL)
+        if (cd->weather_icon_name == NULL) {
+                update_panel_weather (cd);
                 return;
+        }
 
         theme = gtk_icon_theme_get_for_screen (gtk_widget_get_screen (GTK_WIDGET (cd->applet)));
 
@@ -2293,6 +2331,8 @@ location_weather_updated_cb (ClockLocation *location,
         gtk_label_set_text (GTK_LABEL (cd->panel_temperature_label), temp);
 
         cairo_surface_destroy (surface);
+
+        update_panel_weather (cd);
 }
 
 static void
@@ -2315,18 +2355,15 @@ static void
 locations_changed (ClockData *cd)
 {
         if (!cd->locations) {
-                if (cd->weather_obox)
-                        gtk_widget_hide (cd->weather_obox);
                 if (cd->panel_weather_icon)
                         gtk_image_set_from_pixbuf (GTK_IMAGE (cd->panel_weather_icon),
                                                    NULL);
                 if (cd->panel_temperature_label)
                         gtk_label_set_text (GTK_LABEL (cd->panel_temperature_label),
                                             "");
-        } else {
-                if (cd->weather_obox)
-                        gtk_widget_show (cd->weather_obox);
         }
+
+        update_panel_weather (cd);
 
         for (GSList *l = cd->locations; l; l = l->next) {
                 ClockLocation *loc = l->data;

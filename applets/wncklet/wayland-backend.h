@@ -38,7 +38,8 @@ extern "C" {
 void toggle_show_desktop(GtkWidget *button, gboolean desktop_showing);
 GtkWidget* wayland_tasklist_new (void);
 GtkWidget* wayland_selector_new (void);
-GtkWidget* wayland_workspace_switcher_new (void);
+GtkWidget* wayland_workspace_switcher_new (int size);
+void wayland_workspace_switcher_set_size (GtkWidget* switcher_widget, int size);
 void wayland_tasklist_set_orientation (GtkWidget* tasklist_widget, GtkOrientation orient);
 void wayland_workspace_switcher_set_orientation (GtkWidget* switcher_widget, GtkOrientation orient);
 void wayland_workspace_switcher_set_workspace_count (GtkWidget* switcher_widget, int count);

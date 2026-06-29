@@ -439,7 +439,7 @@ calendar_window_fill (CalendarWindow *calwin)
         GtkWidget *vbox;
 
         frame = gtk_frame_new (NULL);
-        gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_OUT);
+        gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
         gtk_container_add (GTK_CONTAINER (calwin), frame);
         gtk_widget_show (frame);
 

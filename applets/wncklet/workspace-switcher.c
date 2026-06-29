@@ -461,11 +461,24 @@ static void applet_change_orient(MatePanelApplet* applet, MatePanelAppletOrient 
 
 #ifdef HAVE_WAYLAND
 	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+	{
 		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
+		wayland_workspace_switcher_set_size (pager->pager, mate_panel_applet_get_size (applet));
+	}
 #endif /* HAVE_WAYLAND */
 
 	if (pager->label_row_col)
 		gtk_label_set_text(GTK_LABEL(pager->label_row_col), pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));
+}
+
+static void applet_change_pixel_size (MatePanelApplet* applet, gint size, PagerData* pager)
+{
+#ifdef HAVE_WAYLAND
+	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
+	{
+		wayland_workspace_switcher_set_size (pager->pager, size);
+	}
+#endif
 }
 
 static void applet_change_background(MatePanelApplet* applet, MatePanelAppletBackgroundType type, GdkColor* color, cairo_pattern_t *pattern, PagerData* pager)
@@ -836,8 +849,10 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 	if (GDK_IS_WAYLAND_DISPLAY (gdk_display_get_default ()))
 	{
 		pager->wm = PAGER_WM_MARCO;
-		pager->pager = wayland_workspace_switcher_new ();
+		int applet_size = mate_panel_applet_get_size (MATE_PANEL_APPLET (pager->applet));
+		pager->pager = wayland_workspace_switcher_new (applet_size);
 		wayland_workspace_switcher_set_orientation (pager->pager, pager->orientation);
+		wayland_workspace_switcher_set_size (pager->pager, applet_size);
 		wayland_workspace_switcher_set_n_rows (pager->pager, pager->n_rows);
 		wayland_workspace_switcher_set_show_all (pager->pager, pager->display_all);
 		wayland_workspace_switcher_set_display_names (pager->pager, pager->display_names);
@@ -875,6 +890,9 @@ gboolean workspace_switcher_applet_fill(MatePanelApplet* applet)
 	                  pager);
 	g_signal_connect (pager->applet, "change-orient",
 	                  G_CALLBACK (applet_change_orient),
+	                  pager);
+	g_signal_connect (pager->applet, "change-size",
+	                  G_CALLBACK (applet_change_pixel_size),
 	                  pager);
 	g_signal_connect (pager->applet, "change-background",
 	                  G_CALLBACK (applet_change_background),
