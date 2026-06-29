@@ -208,7 +208,8 @@ struct _ClockData {
 
         GSettings *settings;
 
-        const gchar *weather_icon_name;
+        gchar *weather_icon_name;
+        guint weather_icon_update_idle_id;
 
         GDBusProxy *system_manager_proxy;
 
@@ -765,8 +766,11 @@ free_locations (ClockData *cd)
         if (cd->locations != NULL) {
                 GSList *l;
 
-                for (l = cd->locations; l; l = l->next)
+                for (l = cd->locations; l; l = l->next) {
+                        g_signal_handlers_disconnect_by_data (l->data, cd);
+                        g_object_set_data (G_OBJECT (l->data), "weather-updated", NULL);
                         g_object_unref (l->data);
+                }
 
                 g_slist_free (cd->locations);
         }
@@ -776,6 +780,8 @@ free_locations (ClockData *cd)
 static void
 destroy_clock (GtkWidget * widget, ClockData *cd)
 {
+        g_signal_handlers_disconnect_by_data (cd->applet, cd);
+
         if (cd->system_manager_proxy)
         {
                 g_signal_handlers_disconnect_by_data (cd->system_manager_proxy, cd);
@@ -796,6 +802,10 @@ destroy_clock (GtkWidget * widget, ClockData *cd)
                 g_source_remove (cd->timeout);
         cd->timeout = 0;
 
+        if (cd->weather_icon_update_idle_id)
+                g_source_remove (cd->weather_icon_update_idle_id);
+        cd->weather_icon_update_idle_id = 0;
+
         if (cd->props)
                 gtk_widget_destroy (cd->props);
         cd->props = NULL;
@@ -810,6 +820,8 @@ destroy_clock (GtkWidget * widget, ClockData *cd)
         g_free (cd->timeformat);
 
         g_free (cd->custom_format);
+
+        g_clear_pointer (&cd->weather_icon_name, g_free);
 
         free_locations (cd);
 
@@ -2171,6 +2183,11 @@ update_panel_weather (ClockData *cd)
 {
         gboolean show = FALSE;
 
+        if (cd->panel_weather_icon == NULL ||
+            cd->panel_temperature_label == NULL ||
+            cd->weather_obox == NULL)
+                return;
+
         if (cd->show_weather)
                 gtk_widget_show (cd->panel_weather_icon);
         else
@@ -2271,9 +2288,21 @@ weather_icon_updated_cb (MatePanelApplet *applet,
                                                      GTK_ICON_LOOKUP_FORCE_SIZE,
                                                                           NULL);
 
-        gtk_image_set_from_surface (GTK_IMAGE (cd->panel_weather_icon), surface);
+        if (surface != NULL) {
+                gtk_image_set_from_surface (GTK_IMAGE (cd->panel_weather_icon), surface);
+                cairo_surface_destroy (surface);
+        }
+}
 
-        cairo_surface_destroy (surface);
+static gboolean
+clock_applet_update_weather_icon_idle (gpointer data)
+{
+        ClockData *cd = data;
+
+        cd->weather_icon_update_idle_id = 0;
+        weather_icon_updated_cb (MATE_PANEL_APPLET (cd->applet), 0, cd);
+
+        return G_SOURCE_REMOVE;
 }
 
 static void
@@ -2281,7 +2310,10 @@ clock_applet_style_updated (GtkWidget *widget,
                             gpointer   data)
 {
         ClockData *cd = data;
-        weather_icon_updated_cb (MATE_PANEL_APPLET (widget), 0, cd);
+
+        if (cd->weather_icon_update_idle_id == 0)
+                cd->weather_icon_update_idle_id =
+                        g_idle_add (clock_applet_update_weather_icon_idle, cd);
 }
 
 static void
@@ -2291,6 +2323,7 @@ location_weather_updated_cb (ClockLocation *location,
 {
         ClockData *cd = data;
         const gchar *temp;
+        const gchar *weather_icon_name;
         GtkIconTheme *theme;
         cairo_surface_t *surface;
         gint icon_size, icon_scale;
@@ -2305,11 +2338,14 @@ location_weather_updated_cb (ClockLocation *location,
                 return;
         }
 
-        cd->weather_icon_name = weather_info_get_icon_name (info);
-        if (cd->weather_icon_name == NULL) {
+        weather_icon_name = weather_info_get_icon_name (info);
+        if (weather_icon_name == NULL) {
                 update_panel_weather (cd);
                 return;
         }
+
+        g_free (cd->weather_icon_name);
+        cd->weather_icon_name = g_strdup (weather_icon_name);
 
         theme = gtk_icon_theme_get_for_screen (gtk_widget_get_screen (GTK_WIDGET (cd->applet)));
 
@@ -2335,10 +2371,12 @@ location_weather_updated_cb (ClockLocation *location,
 
         temp = weather_info_get_temp_summary (info);
 
-        gtk_image_set_from_surface (GTK_IMAGE (cd->panel_weather_icon), surface);
+        if (surface != NULL)
+                gtk_image_set_from_surface (GTK_IMAGE (cd->panel_weather_icon), surface);
         gtk_label_set_text (GTK_LABEL (cd->panel_temperature_label), temp);
 
-        cairo_surface_destroy (surface);
+        if (surface != NULL)
+                cairo_surface_destroy (surface);
 
         update_panel_weather (cd);
 }
@@ -2363,6 +2401,7 @@ static void
 locations_changed (ClockData *cd)
 {
         if (!cd->locations) {
+                g_clear_pointer (&cd->weather_icon_name, g_free);
                 if (cd->panel_weather_icon)
                         gtk_image_set_from_pixbuf (GTK_IMAGE (cd->panel_weather_icon),
                                                    NULL);
