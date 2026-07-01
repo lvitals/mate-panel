@@ -3164,9 +3164,18 @@ location_search_normalize (const gchar *text)
         GString *result;
         const gchar *p;
 
+        if (text == NULL)
+                return g_strdup ("");
+
         casefolded = g_utf8_casefold (text, -1);
+        if (casefolded == NULL)
+                return g_strdup ("");
+
         normalized = g_utf8_normalize (casefolded, -1, G_NORMALIZE_ALL);
         g_free (casefolded);
+
+        if (normalized == NULL)
+                return g_strdup ("");
 
         result = g_string_sized_new (strlen (normalized));
         for (p = normalized; *p; p = g_utf8_next_char (p)) {
@@ -3199,6 +3208,9 @@ location_search_match (GtkEntryCompletion *completion,
         const gchar *cursor;
         gboolean match = TRUE;
         gint i;
+
+        if (key == NULL)
+                return FALSE;
 
         model = gtk_entry_completion_get_model (completion);
         gtk_tree_model_get (model, iter, CLOCK_LOCATION_ENTRY_COL_DISPLAY_NAME, &display_name, -1);
@@ -3326,6 +3338,8 @@ remove_tree_row (GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter, gpoi
         ClockLocation *loc = NULL;
 
         gtk_tree_model_get (model, iter, COL_CITY_LOC, &loc, -1);
+        if (loc == NULL)
+                return;
         cd->locations = g_slist_remove (cd->locations, loc);
         g_object_unref (loc);
 
@@ -3389,6 +3403,8 @@ edit_tree_row (GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter, gpoint
         edit_clear (cd);
 
         gtk_tree_model_get (model, iter, COL_CITY_LOC, &loc, -1);
+        if (loc == NULL)
+                return;
 
         mateweather_location_entry_set_city (cd->location_entry,
                                           clock_location_get_city (loc),

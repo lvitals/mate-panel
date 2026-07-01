@@ -423,7 +423,11 @@ static void applet_realized(MatePanelApplet* applet, PagerData* pager)
 	}
 #endif /* HAVE_X11 */
 
+#ifdef HAVE_X11
 	window_manager_changed(pager->screen, pager);
+#else
+	window_manager_changed(NULL, pager);
+#endif
 }
 
 static void applet_unrealized(MatePanelApplet* applet, PagerData* pager)
